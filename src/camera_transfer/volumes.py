@@ -5,6 +5,7 @@ and watches for new mounts/unmounts.
 """
 
 import os
+import re
 import subprocess
 import json
 import time
@@ -12,6 +13,11 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
+
+
+# RED camera magazine volume name pattern: letter + 3 digits + underscore + camera ID
+# Examples: A005_02208H, B001_1234AB, C002_5678CD
+RED_VOLUME_NAME_RE = re.compile(r'^[A-Z]\d{3}_[A-Za-z0-9]+$')
 
 
 class VolumeType(Enum):
@@ -122,16 +128,33 @@ def _inspect_volume(mount_point: Path) -> Optional[Volume]:
 
 
 def _classify_volume(mount_point: Path) -> VolumeType:
-    """Classify a volume based on its directory structure and file contents."""
-    # RED DSMC2: look for .RDC directories at any depth
-    rdc_dirs = [d for d in mount_point.rglob("*.RDC") if d.is_dir()]
+    """Classify a volume based on its directory structure and file contents.
+
+    Uses limited-depth searches (not rglob) so large destination drives
+    with previously-transferred footage aren't misclassified as camera cards.
+    """
+    # RED DSMC2: .RDC directories at root or up to 2 levels deep
+    rdc_dirs = _glob_limited(mount_point, "*.RDC", max_depth=2, dirs_only=True)
     if rdc_dirs:
         return VolumeType.RED_DSMC2
 
-    # RED Komodo / any RED: R3D files anywhere on the volume
-    r3d_files = list(mount_point.rglob("*.R3D"))
+    # RED: .R3D files at root or up to 2 levels deep
+    r3d_files = _glob_limited(mount_point, "*.R3D", max_depth=2)
     if r3d_files:
         return VolumeType.RED_KOMODO
+
+    # RED ProRes: volume name matches RED magazine naming AND has video files
+    # RED mags are named like A005_02208H (letter + 3 digits + _ + camera ID)
+    if RED_VOLUME_NAME_RE.match(mount_point.name):
+        video_files = _glob_limited_multi(
+            mount_point, ["*.mov", "*.MOV", "*.mp4", "*.MP4"], max_depth=2
+        )
+        if video_files:
+            return VolumeType.RED_DSMC2
+        # Even without video, a RED-named volume with any non-system files is a RED card
+        for entry in mount_point.iterdir():
+            if entry.is_file() and not entry.name.startswith("."):
+                return VolumeType.RED_DSMC2
 
     # ARRI: look for ARRI-specific folder structures
     # ALEXA 35 uses a structure with ARRIRAW or ProRes folders
@@ -173,20 +196,52 @@ def _classify_volume(mount_point: Path) -> VolumeType:
     return VolumeType.UNKNOWN
 
 
+def _glob_limited(
+    root: Path, pattern: str, max_depth: int = 2, dirs_only: bool = False
+) -> list[Path]:
+    """Glob for a pattern at limited depth (0 to max_depth levels).
+
+    Avoids rglob which can be slow on large volumes and may find
+    previously-transferred files deep in project folder structures.
+    """
+    results = []
+    for depth in range(max_depth + 1):
+        prefix = "/".join(["*"] * depth) + "/" if depth > 0 else ""
+        for p in root.glob(f"{prefix}{pattern}"):
+            if dirs_only and not p.is_dir():
+                continue
+            results.append(p)
+    return results
+
+
+def _glob_limited_multi(
+    root: Path, patterns: list[str], max_depth: int = 2
+) -> list[Path]:
+    """Glob for multiple patterns at limited depth."""
+    results = []
+    for pattern in patterns:
+        results.extend(_glob_limited(root, pattern, max_depth))
+    return results
+
+
 def _find_camera_rolls(mount_point: Path, vol_type: VolumeType) -> list[str]:
     """Find individual camera rolls / clips on a volume."""
     rolls = []
 
     if vol_type in (VolumeType.RED_DSMC2, VolumeType.RED_KOMODO):
-        # RED: each .RDC folder is a roll, or group R3D files by prefix
-        rdc_dirs = [d for d in mount_point.rglob("*.RDC") if d.is_dir()]
+        # RED: each .RDC folder is a roll
+        rdc_dirs = _glob_limited(mount_point, "*.RDC", max_depth=2, dirs_only=True)
         if rdc_dirs:
             rolls = [d.stem for d in sorted(rdc_dirs)]
         else:
-            r3d_files = list(mount_point.rglob("*.R3D"))
+            # Group video files by RED clip prefix (A005_C001)
+            video_files = _glob_limited_multi(
+                mount_point,
+                ["*.R3D", "*.mov", "*.MOV"],
+                max_depth=2,
+            )
             prefixes = set()
-            for f in r3d_files:
-                # RED files: A001_C001_0101AB_001.R3D -> prefix is A001_C001
+            for f in video_files:
                 parts = f.stem.split("_")
                 if len(parts) >= 2:
                     prefixes.add(f"{parts[0]}_{parts[1]}")

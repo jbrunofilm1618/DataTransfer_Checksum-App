@@ -13,6 +13,7 @@ Understands the on-disk layout of:
 """
 
 import os
+import re
 from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
@@ -115,7 +116,14 @@ class CameraRoll:
 
     @property
     def total_bytes(self) -> int:
-        return sum(f.size_bytes for f in self.files)
+        media_bytes = sum(f.size_bytes for f in self.files)
+        sidecar_bytes = 0
+        for sf in self.sidecar_files:
+            try:
+                sidecar_bytes += sf.stat().st_size
+            except OSError:
+                pass
+        return media_bytes + sidecar_bytes
 
     @property
     def total_gb(self) -> float:
@@ -123,7 +131,7 @@ class CameraRoll:
 
     @property
     def file_count(self) -> int:
-        return len(self.files)
+        return len(self.files) + len(self.sidecar_files)
 
 
 @dataclass
@@ -154,12 +162,31 @@ class CameraCard:
         return files
 
 
-# File extensions we care about per camera system
-RED_EXTENSIONS = {".r3d"}
-RED_SIDECAR_EXTENSIONS = {".rmd", ".rsx", ".r3d.rmd"}
-ARRI_EXTENSIONS = {".ari", ".mxf", ".mov"}
+# Video extensions across all camera systems (used to classify primary media files)
+ALL_VIDEO_EXTENSIONS = {".r3d", ".ari", ".mxf", ".mov", ".mp4", ".m4v"}
+
+# RED-specific
+RED_SIDECAR_EXTENSIONS = {".rmd", ".rsx"}
 ARRI_SIDECAR_EXTENSIONS = {".xml", ".ale", ".cdl"}
 AUDIO_EXTENSIONS = {".wav", ".bwf"}
+
+# macOS / Windows system files and directories to skip when scanning camera cards
+_SYSTEM_NAMES = frozenset({
+    ".DS_Store", ".Trashes", ".Spotlight-V100", ".fseventsd",
+    ".TemporaryItems", ".VolumeIcon.icns", ".metadata_never_index",
+    "System Volume Information", "$RECYCLE.BIN", "Thumbs.db",
+})
+
+# RED clip name pattern: A005_C001_02208H or A005_C001_02208H_001
+_RED_CLIP_RE = re.compile(r'^([A-Z]\d{3}_C\d{3})')
+
+
+def _is_system_file(path: Path) -> bool:
+    """Check if a path is a system/hidden file that should be skipped."""
+    for part in path.parts:
+        if part in _SYSTEM_NAMES or (part.startswith("._") and len(part) > 2):
+            return True
+    return False
 
 
 def parse_camera_card(mount_point: Path, volume_type: VolumeType) -> CameraCard:
@@ -181,67 +208,128 @@ def parse_camera_card(mount_point: Path, volume_type: VolumeType) -> CameraCard:
 
 
 def _parse_red_dsmc2(mount_point: Path) -> list[CameraRoll]:
-    """Parse RED DSMC2 card structure.
+    """Parse RED DSMC2 card — supports REDCODE (.R3D), ProRes (.mov), and all other files.
 
-    Typical structure:
-        VOLUME/
-        ├── A001_1234AB/          (or just at root)
-        │   ├── A001_C001_1234AB.RDC/
-        │   │   ├── A001_C001_1234AB_001.R3D
-        │   │   ├── A001_C001_1234AB_002.R3D
-        │   │   └── A001_C001_1234AB.RMD
-        │   └── A001_C002_1234AB.RDC/
-        │       └── ...
+    RED cameras can record in multiple formats:
+    - REDCODE RAW: .R3D files inside .RDC directories
+    - Apple ProRes: .mov files (flat or in clip directories)
+    - Metadata: .RMD, .RSX sidecar files
 
-    Uses recursive search to handle varied nesting depths across firmware versions.
+    This parser collects EVERY file on the card for transfer, organized into
+    rolls by .RDC directory or clip name prefix.
     """
     rolls = []
 
-    # Find all .RDC directories at any depth
-    rdc_dirs = sorted(
-        d for d in mount_point.rglob("*.RDC") if d.is_dir()
+    # Gather ALL files on the card (skip macOS/system files)
+    all_files = sorted(
+        f for f in mount_point.rglob("*")
+        if f.is_file() and not _is_system_file(f)
     )
 
-    for rdc_dir in rdc_dirs:
-        roll = CameraRoll(
-            name=rdc_dir.stem,
-            source_path=rdc_dir,
-        )
+    if not all_files:
+        return rolls
 
-        # Search recursively within each .RDC directory for R3D and sidecar files
-        for f in sorted(rdc_dir.rglob("*")):
-            if not f.is_file():
-                continue
-            if f.suffix.lower() in RED_EXTENSIONS:
-                roll.files.append(_make_media_file(f, MediaFormat.R3D))
-            elif f.suffix.lower() in RED_SIDECAR_EXTENSIONS:
-                roll.sidecar_files.append(f)
+    # Check for .RDC directories (REDCODE RAW workflow)
+    rdc_dirs = sorted(d for d in mount_point.rglob("*.RDC") if d.is_dir())
 
-        if roll.files:
-            rolls.append(roll)
+    if rdc_dirs:
+        # Group files by which RDC directory they're in
+        claimed = set()
 
-    # Fallback: if no RDC directories found, look for loose .R3D files anywhere
-    if not rolls:
-        r3d_files = sorted(mount_point.rglob("*.R3D"))
-        if r3d_files:
-            # Group by parent directory
-            dir_groups: dict[Path, list[Path]] = {}
-            for f in r3d_files:
-                dir_groups.setdefault(f.parent, []).append(f)
+        for rdc_dir in rdc_dirs:
+            roll = CameraRoll(name=rdc_dir.stem, source_path=rdc_dir)
 
-            for dir_path, files in sorted(dir_groups.items()):
-                roll_name = dir_path.name if dir_path != mount_point else mount_point.name
-                roll = CameraRoll(name=roll_name, source_path=dir_path)
-                for f in sorted(files):
-                    roll.files.append(_make_media_file(f, MediaFormat.R3D))
-                # Gather sidecar files in the same directory
-                for f in dir_path.iterdir():
-                    if f.is_file() and f.suffix.lower() in RED_SIDECAR_EXTENSIONS:
+            for f in all_files:
+                if _is_under(f, rdc_dir):
+                    suffix = f.suffix.lower()
+                    if suffix in ALL_VIDEO_EXTENSIONS:
+                        fmt = EXTENSION_TO_FORMAT.get(suffix, MediaFormat.UNKNOWN)
+                        roll.files.append(_make_media_file(f, fmt))
+                    else:
                         roll.sidecar_files.append(f)
-                if roll.files:
-                    rolls.append(roll)
+                    claimed.add(f)
+
+            if roll.files or roll.sidecar_files:
+                rolls.append(roll)
+
+        # Any remaining files outside RDC dirs (loose ProRes, metadata, logs)
+        remaining = [f for f in all_files if f not in claimed]
+        if remaining:
+            _add_files_as_rolls(rolls, remaining, mount_point, "extras")
+
+    else:
+        # No RDC dirs — ProRes workflow or flat file structure
+        # Group all files by RED clip prefix (A005_C001) if naming matches
+        _add_files_as_rolls(rolls, all_files, mount_point)
 
     return rolls
+
+
+def _add_files_as_rolls(
+    rolls: list[CameraRoll],
+    files: list[Path],
+    mount_point: Path,
+    fallback_suffix: str = "",
+) -> None:
+    """Organize files into rolls by RED clip name prefix.
+
+    Files matching RED naming (A005_C001_...) are grouped by clip ID.
+    Remaining files go into a catch-all roll.
+    """
+    clip_groups: dict[str, list[Path]] = {}
+    ungrouped: list[Path] = []
+
+    for f in files:
+        clip_id = _extract_red_clip_id(f.stem)
+        if clip_id:
+            clip_groups.setdefault(clip_id, []).append(f)
+        else:
+            ungrouped.append(f)
+
+    # Create a roll per clip group
+    for clip_id, group_files in sorted(clip_groups.items()):
+        roll = CameraRoll(name=clip_id, source_path=group_files[0].parent)
+        for f in sorted(group_files):
+            suffix = f.suffix.lower()
+            if suffix in ALL_VIDEO_EXTENSIONS:
+                fmt = EXTENSION_TO_FORMAT.get(suffix, MediaFormat.UNKNOWN)
+                roll.files.append(_make_media_file(f, fmt))
+            else:
+                roll.sidecar_files.append(f)
+        if roll.files or roll.sidecar_files:
+            rolls.append(roll)
+
+    # Catch-all for files that don't match RED naming
+    if ungrouped:
+        name = f"{mount_point.name}_{fallback_suffix}" if fallback_suffix else mount_point.name
+        roll = CameraRoll(name=name, source_path=mount_point)
+        for f in sorted(ungrouped):
+            suffix = f.suffix.lower()
+            if suffix in ALL_VIDEO_EXTENSIONS:
+                fmt = EXTENSION_TO_FORMAT.get(suffix, MediaFormat.UNKNOWN)
+                roll.files.append(_make_media_file(f, fmt))
+            else:
+                roll.sidecar_files.append(f)
+        if roll.files or roll.sidecar_files:
+            rolls.append(roll)
+
+
+def _extract_red_clip_id(stem: str) -> Optional[str]:
+    """Extract RED clip identifier from a filename.
+
+    RED naming convention: A005_C001_02208H_001 -> clip ID is A005_C001
+    """
+    m = _RED_CLIP_RE.match(stem)
+    return m.group(1) if m else None
+
+
+def _is_under(path: Path, parent: Path) -> bool:
+    """Check if path is under parent directory."""
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
 
 
 def _parse_red_komodo(mount_point: Path) -> list[CameraRoll]:
@@ -254,41 +342,10 @@ def _parse_red_komodo(mount_point: Path) -> list[CameraRoll]:
         ├── A001_C002_0101AB_001.R3D
         └── ...
     Or sometimes with .RDC-like groupings in folders.
+    Also supports ProRes (.mov) when Komodo is set to that format.
     """
-    rolls = []
-
-    # First check for .RDC style folders (Komodo can use these too)
-    rdc_dirs = [d for d in mount_point.rglob("*.RDC") if d.is_dir()]
-    if rdc_dirs:
-        return _parse_red_dsmc2(mount_point)
-
-    # Flat structure: group R3D files by clip name prefix
-    r3d_files = sorted(mount_point.rglob("*.R3D"))
-
-    clip_groups: dict[str, list[Path]] = {}
-    for f in r3d_files:
-        # RED naming: A001_C001_0101AB_001.R3D
-        # Clip identifier is everything except the segment number
-        parts = f.stem.rsplit("_", 1)
-        clip_id = parts[0] if len(parts) >= 2 else f.stem
-        clip_groups.setdefault(clip_id, []).append(f)
-
-    for clip_id, files in sorted(clip_groups.items()):
-        roll = CameraRoll(
-            name=clip_id,
-            source_path=files[0].parent,
-        )
-        for f in sorted(files):
-            roll.files.append(_make_media_file(f, MediaFormat.R3D))
-
-        # Find matching sidecar files
-        for f in files[0].parent.iterdir():
-            if f.stem.startswith(clip_id) and f.suffix.lower() in RED_SIDECAR_EXTENSIONS:
-                roll.sidecar_files.append(f)
-
-        rolls.append(roll)
-
-    return rolls
+    # Delegate to the DSMC2 parser — it handles all formats and structures
+    return _parse_red_dsmc2(mount_point)
 
 
 def _parse_arri(mount_point: Path, volume_type: VolumeType) -> list[CameraRoll]:
