@@ -192,12 +192,14 @@ def _parse_red_dsmc2(mount_point: Path) -> list[CameraRoll]:
         │   │   └── A001_C001_1234AB.RMD
         │   └── A001_C002_1234AB.RDC/
         │       └── ...
+
+    Uses recursive search to handle varied nesting depths across firmware versions.
     """
     rolls = []
 
-    # Find all .RDC directories
+    # Find all .RDC directories at any depth
     rdc_dirs = sorted(
-        list(mount_point.glob("*.RDC")) + list(mount_point.glob("*/*.RDC"))
+        d for d in mount_point.rglob("*.RDC") if d.is_dir()
     )
 
     for rdc_dir in rdc_dirs:
@@ -206,7 +208,10 @@ def _parse_red_dsmc2(mount_point: Path) -> list[CameraRoll]:
             source_path=rdc_dir,
         )
 
-        for f in sorted(rdc_dir.iterdir()):
+        # Search recursively within each .RDC directory for R3D and sidecar files
+        for f in sorted(rdc_dir.rglob("*")):
+            if not f.is_file():
+                continue
             if f.suffix.lower() in RED_EXTENSIONS:
                 roll.files.append(_make_media_file(f, MediaFormat.R3D))
             elif f.suffix.lower() in RED_SIDECAR_EXTENSIONS:
@@ -214,6 +219,27 @@ def _parse_red_dsmc2(mount_point: Path) -> list[CameraRoll]:
 
         if roll.files:
             rolls.append(roll)
+
+    # Fallback: if no RDC directories found, look for loose .R3D files anywhere
+    if not rolls:
+        r3d_files = sorted(mount_point.rglob("*.R3D"))
+        if r3d_files:
+            # Group by parent directory
+            dir_groups: dict[Path, list[Path]] = {}
+            for f in r3d_files:
+                dir_groups.setdefault(f.parent, []).append(f)
+
+            for dir_path, files in sorted(dir_groups.items()):
+                roll_name = dir_path.name if dir_path != mount_point else mount_point.name
+                roll = CameraRoll(name=roll_name, source_path=dir_path)
+                for f in sorted(files):
+                    roll.files.append(_make_media_file(f, MediaFormat.R3D))
+                # Gather sidecar files in the same directory
+                for f in dir_path.iterdir():
+                    if f.is_file() and f.suffix.lower() in RED_SIDECAR_EXTENSIONS:
+                        roll.sidecar_files.append(f)
+                if roll.files:
+                    rolls.append(roll)
 
     return rolls
 
@@ -232,16 +258,12 @@ def _parse_red_komodo(mount_point: Path) -> list[CameraRoll]:
     rolls = []
 
     # First check for .RDC style folders (Komodo can use these too)
-    rdc_dirs = sorted(
-        list(mount_point.glob("*.RDC")) + list(mount_point.glob("*/*.RDC"))
-    )
+    rdc_dirs = [d for d in mount_point.rglob("*.RDC") if d.is_dir()]
     if rdc_dirs:
         return _parse_red_dsmc2(mount_point)
 
     # Flat structure: group R3D files by clip name prefix
-    r3d_files = sorted(
-        list(mount_point.glob("*.R3D")) + list(mount_point.glob("*/*.R3D"))
-    )
+    r3d_files = sorted(mount_point.rglob("*.R3D"))
 
     clip_groups: dict[str, list[Path]] = {}
     for f in r3d_files:

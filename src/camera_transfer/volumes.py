@@ -123,13 +123,13 @@ def _inspect_volume(mount_point: Path) -> Optional[Volume]:
 
 def _classify_volume(mount_point: Path) -> VolumeType:
     """Classify a volume based on its directory structure and file contents."""
-    # RED DSMC2: look for .RDC directories at top level or in a subfolder
-    rdc_dirs = list(mount_point.glob("*.RDC")) + list(mount_point.glob("*/*.RDC"))
+    # RED DSMC2: look for .RDC directories at any depth
+    rdc_dirs = [d for d in mount_point.rglob("*.RDC") if d.is_dir()]
     if rdc_dirs:
         return VolumeType.RED_DSMC2
 
-    # RED Komodo: R3D files in flat structure or minimal folders
-    r3d_files = list(mount_point.glob("*.R3D")) + list(mount_point.glob("*/*.R3D"))
+    # RED Komodo / any RED: R3D files anywhere on the volume
+    r3d_files = list(mount_point.rglob("*.R3D"))
     if r3d_files:
         return VolumeType.RED_KOMODO
 
@@ -179,11 +179,11 @@ def _find_camera_rolls(mount_point: Path, vol_type: VolumeType) -> list[str]:
 
     if vol_type in (VolumeType.RED_DSMC2, VolumeType.RED_KOMODO):
         # RED: each .RDC folder is a roll, or group R3D files by prefix
-        rdc_dirs = list(mount_point.glob("*.RDC")) + list(mount_point.glob("*/*.RDC"))
+        rdc_dirs = [d for d in mount_point.rglob("*.RDC") if d.is_dir()]
         if rdc_dirs:
             rolls = [d.stem for d in sorted(rdc_dirs)]
         else:
-            r3d_files = list(mount_point.glob("*.R3D")) + list(mount_point.glob("*/*.R3D"))
+            r3d_files = list(mount_point.rglob("*.R3D"))
             prefixes = set()
             for f in r3d_files:
                 # RED files: A001_C001_0101AB_001.R3D -> prefix is A001_C001

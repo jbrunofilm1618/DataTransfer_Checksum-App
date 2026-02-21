@@ -141,6 +141,12 @@ def transfer(source: str, destination: str, title: str, project: str, new_projec
         total_gb = card.total_gb
         target_subfolder = "FOOTAGE"
 
+    if total_files == 0:
+        console.print(f"[red]No transferable files found on {source_path.name}.[/red]")
+        console.print("The card may be empty or use an unrecognized folder structure.")
+        console.print(f"[dim]Mount point: {source_path}[/dim]")
+        return
+
     # Project selection
     if project is None:
         projects = scan_projects(dest_path)
@@ -461,6 +467,12 @@ def _handle_transfer_command(voice_interface: Optional[VoiceInterface], algorith
         total_gb = card.total_gb
         source_name = card.volume_name
         target_subfolder = "FOOTAGE"
+
+    if total_files == 0:
+        _say(voice_interface, f"No transferable files found on {source_name}. "
+             "The card may be empty or use an unrecognized folder structure.")
+        console.print(f"[dim]Mount point: {source_vol.mount_point}[/dim]")
+        return
 
     # Step 2: Select destination volume
     dest_vols = get_destination_volumes()
