@@ -15,7 +15,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from .camera_cards import CameraCard, CameraRoll, MediaFile, get_all_transferable_files
+from .camera_cards import (
+    CameraCard, CameraRoll, MediaFile, SoundCard,
+    get_all_transferable_files, ContentType,
+)
 from .checksum import (
     ChecksumResult,
     HashAlgorithm,
@@ -41,6 +44,9 @@ class FileTransferRecord:
     dest_path: Path
     relative_path: str
     size_bytes: int
+    content_type: str = "video"      # "video", "sound", "sidecar", "metadata"
+    captured_at: Optional[float] = None  # source file mtime (capture timestamp)
+    transferred_at: Optional[float] = None  # when the copy completed
     status: TransferStatus = TransferStatus.PENDING
     source_checksum: Optional[str] = None
     dest_checksum: Optional[str] = None
@@ -168,6 +174,8 @@ def prepare_transfer_job(
                 dest_path=dest,
                 relative_path=str(mf.path.relative_to(card.mount_point)),
                 size_bytes=mf.size_bytes,
+                content_type=mf.content_type.value,
+                captured_at=_get_capture_time(mf.path),
             )
             job.records.append(record)
 
@@ -185,6 +193,8 @@ def prepare_transfer_job(
                 dest_path=dest,
                 relative_path=str(sf.relative_to(card.mount_point)),
                 size_bytes=size,
+                content_type="sidecar",
+                captured_at=_get_capture_time(sf),
             )
             job.records.append(record)
 
@@ -207,8 +217,87 @@ def prepare_transfer_job(
                         dest_path=dest,
                         relative_path=str(f.relative_to(card.mount_point)),
                         size_bytes=size,
+                        content_type="metadata",
+                        captured_at=_get_capture_time(f),
                     )
                     job.records.append(record)
+
+    return job
+
+
+def _get_capture_time(file_path: Path) -> Optional[float]:
+    """Get the capture/creation time of a file (mtime as best proxy)."""
+    try:
+        stat = file_path.stat()
+        # Prefer birth time (st_birthtime) on macOS, fall back to mtime
+        return getattr(stat, "st_birthtime", stat.st_mtime)
+    except OSError:
+        return None
+
+
+def prepare_sound_transfer_job(
+    card: SoundCard,
+    destination_root: Path,
+    volume_title: str,
+    algorithm: HashAlgorithm = HashAlgorithm.XXHASH,
+) -> TransferJob:
+    """Prepare a transfer job for a sound recorder card.
+
+    Routes all audio files to the destination, preserving folder structure.
+
+    Args:
+        card: Parsed sound card.
+        destination_root: Root of destination (typically <project>/SOUND).
+        volume_title: Human-readable title for the folder name.
+        algorithm: Checksum algorithm to use.
+    """
+    # Create a lightweight CameraCard wrapper so TransferJob works
+    camera_card = CameraCard(
+        volume_name=card.volume_name,
+        mount_point=card.mount_point,
+        camera_type=card.recorder_type,
+        rolls=card.rolls,
+    )
+
+    job = TransferJob(
+        card=camera_card,
+        destination_root=destination_root,
+        volume_title=volume_title,
+        algorithm=algorithm,
+    )
+
+    for roll in card.rolls:
+        for mf in roll.files:
+            dest = build_destination_path(
+                destination_root, volume_title, card.mount_point, mf.path, roll.name
+            )
+            record = FileTransferRecord(
+                source_path=mf.path,
+                dest_path=dest,
+                relative_path=str(mf.path.relative_to(card.mount_point)),
+                size_bytes=mf.size_bytes,
+                content_type="sound",
+                captured_at=_get_capture_time(mf.path),
+            )
+            job.records.append(record)
+
+        for sf in roll.sidecar_files:
+            try:
+                size = sf.stat().st_size
+            except OSError:
+                size = 0
+            dest = build_destination_path(
+                destination_root, volume_title, card.mount_point, sf, roll.name
+            )
+            record = FileTransferRecord(
+                source_path=sf,
+                dest_path=dest,
+                relative_path=str(sf.relative_to(card.mount_point)),
+                size_bytes=size,
+                content_type="sidecar",
+                captured_at=_get_capture_time(sf),
+            )
+            job.records.append(record)
 
     return job
 
@@ -251,6 +340,7 @@ def execute_transfer(
             # Copy file preserving metadata
             shutil.copy2(str(record.source_path), str(record.dest_path))
 
+            record.transferred_at = time.time()
             record.status = TransferStatus.VERIFYING
         except (OSError, shutil.Error) as e:
             record.status = TransferStatus.FAILED
@@ -327,12 +417,23 @@ def generate_transfer_report(job: TransferJob) -> dict:
             "destination": str(record.dest_path),
             "relative_path": record.relative_path,
             "size_bytes": record.size_bytes,
+            "content_type": record.content_type,
             "status": record.status.value,
             "source_checksum": record.source_checksum,
             "dest_checksum": record.dest_checksum,
             "checksums_match": record.checksums_match,
             "speed_mbps": round(record.speed_mbps, 2),
         }
+        if record.captured_at:
+            file_entry["captured_at"] = record.captured_at
+            file_entry["captured_at_human"] = time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(record.captured_at)
+            )
+        if record.transferred_at:
+            file_entry["transferred_at"] = record.transferred_at
+            file_entry["transferred_at_human"] = time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(record.transferred_at)
+            )
         if record.error:
             file_entry["error"] = record.error
         report["files"].append(file_entry)
@@ -359,4 +460,90 @@ def save_transfer_report(job: TransferJob, report_dir: Optional[Path] = None) ->
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2)
 
+    # Also write per-folder metadata tags
+    save_folder_metadata(job)
+
     return report_path
+
+
+def save_folder_metadata(job: TransferJob):
+    """Write _transfer_metadata.json into each destination folder.
+
+    Each metadata file records:
+    - When files were transferred
+    - When files were originally captured (if available)
+    - Whether content is video footage or sound
+    - Source device information
+    """
+    # Group records by destination folder
+    folder_records: dict[Path, list[FileTransferRecord]] = {}
+    for record in job.records:
+        folder = record.dest_path.parent
+        folder_records.setdefault(folder, []).append(record)
+
+    for folder, records in folder_records.items():
+        # Determine the dominant content type for this folder
+        content_types = set(r.content_type for r in records)
+        if "video" in content_types:
+            folder_type = "video"
+        elif "sound" in content_types:
+            folder_type = "sound"
+        else:
+            folder_type = list(content_types)[0] if content_types else "unknown"
+
+        # Collect capture time range
+        capture_times = [r.captured_at for r in records if r.captured_at]
+        transfer_times = [r.transferred_at for r in records if r.transferred_at]
+
+        metadata = {
+            "content_type": folder_type,
+            "source_device": job.card.volume_name,
+            "device_type": job.card.camera_type.value,
+            "file_count": len(records),
+            "total_bytes": sum(r.size_bytes for r in records),
+        }
+
+        if transfer_times:
+            earliest = min(transfer_times)
+            latest = max(transfer_times)
+            metadata["transferred_at"] = time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(earliest)
+            )
+            if earliest != latest:
+                metadata["transfer_completed_at"] = time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(latest)
+                )
+
+        if capture_times:
+            earliest = min(capture_times)
+            latest = max(capture_times)
+            metadata["captured_earliest"] = time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(earliest)
+            )
+            metadata["captured_latest"] = time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(latest)
+            )
+
+        metadata["files"] = []
+        for r in records:
+            entry = {
+                "filename": r.dest_path.name,
+                "content_type": r.content_type,
+                "size_bytes": r.size_bytes,
+            }
+            if r.captured_at:
+                entry["captured_at"] = time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(r.captured_at)
+                )
+            if r.transferred_at:
+                entry["transferred_at"] = time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(r.transferred_at)
+                )
+            if r.source_checksum:
+                entry["checksum"] = r.source_checksum
+            metadata["files"].append(entry)
+
+        meta_path = folder / "_transfer_metadata.json"
+        folder.mkdir(parents=True, exist_ok=True)
+        with open(meta_path, "w") as f:
+            json.dump(metadata, f, indent=2)

@@ -25,7 +25,7 @@ from rich.columns import Columns
 from rich import box
 
 from .volumes import Volume, VolumeType, Project, PROJECT_SUBFOLDERS
-from .camera_cards import CameraCard
+from .camera_cards import CameraCard, SoundCard
 from .transfer import TransferJob, TransferStatus, FileTransferRecord
 
 console = Console()
@@ -39,6 +39,10 @@ CAMERA_LABELS = {
     VolumeType.ARRI_ALEXA_MINI: "ARRI ALEXA Mini/LF",
     VolumeType.ARRI_ALEXA35: "ARRI ALEXA 35",
     VolumeType.ARRI_AMIRA: "ARRI AMIRA",
+    VolumeType.SOUND_DEVICES: "Sound Devices",
+    VolumeType.ZOOM_RECORDER: "Zoom Recorder",
+    VolumeType.TASCAM_RECORDER: "Tascam Recorder",
+    VolumeType.SOUND_RECORDER: "Sound Recorder",
     VolumeType.GENERIC_STORAGE: "Storage",
     VolumeType.UNKNOWN: "Unknown",
 }
@@ -57,7 +61,12 @@ def display_volumes(volumes: list[Volume], title: str = "Mounted Volumes"):
 
     for i, vol in enumerate(volumes, 1):
         vol_label = CAMERA_LABELS.get(vol.volume_type, vol.volume_type.value)
-        style = "bold yellow" if vol.is_camera_card else ""
+        if vol.is_camera_card:
+            style = "bold yellow"
+        elif vol.is_sound_device:
+            style = "bold green"
+        else:
+            style = ""
 
         table.add_row(
             str(i),
@@ -97,6 +106,40 @@ def display_camera_card(card: CameraCard):
                 roll.name,
                 str(roll.file_count),
                 f"{roll.total_gb:.2f} GB",
+            )
+
+        console.print(table)
+
+
+def display_sound_card(card: SoundCard):
+    """Display detailed info about a sound recorder card."""
+    vol_label = CAMERA_LABELS.get(card.recorder_type, card.recorder_type.value)
+
+    console.print(Panel(
+        f"[bold]{card.volume_name}[/bold] — {vol_label}\n"
+        f"Sessions: {len(card.rolls)}  |  "
+        f"Files: {card.total_files}  |  "
+        f"Size: {card.total_gb:.2f} GB",
+        title="Sound Card",
+        border_style="green",
+    ))
+
+    if card.rolls:
+        table = Table(box=box.SIMPLE)
+        table.add_column("Session/Folder", style="bold")
+        table.add_column("Files", justify="right")
+        table.add_column("Size", justify="right")
+        table.add_column("Formats", style="dim")
+
+        for roll in card.rolls:
+            formats = ", ".join(sorted(set(
+                f.format.value.upper() for f in roll.files
+            )))
+            table.add_row(
+                roll.name,
+                str(roll.file_count),
+                f"{roll.total_gb:.2f} GB",
+                formats,
             )
 
         console.print(table)

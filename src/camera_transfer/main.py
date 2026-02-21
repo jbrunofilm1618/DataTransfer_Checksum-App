@@ -18,16 +18,19 @@ from .volumes import (
     get_mounted_volumes,
     get_camera_volumes,
     get_destination_volumes,
+    get_sound_volumes,
+    get_media_volumes,
     VolumeWatcher,
     scan_projects,
     create_project,
 )
-from .camera_cards import parse_camera_card, CameraCard
+from .camera_cards import parse_camera_card, parse_sound_card, CameraCard, SoundCard
 from .checksum import HashAlgorithm
 from .transfer import (
     TransferJob,
     TransferStatus,
     prepare_transfer_job,
+    prepare_sound_transfer_job,
     execute_transfer,
     save_transfer_report,
 )
@@ -36,6 +39,7 @@ from .ui import (
     console,
     display_volumes,
     display_camera_card,
+    display_sound_card,
     display_transfer_summary,
     display_verification_result,
     display_help,
@@ -105,22 +109,37 @@ def cameras():
     help="Checksum algorithm.",
 )
 def transfer(source: str, destination: str, title: str, project: str, new_project: bool, algorithm: str):
-    """Transfer footage from SOURCE camera card to DESTINATION volume."""
+    """Transfer footage or sound from SOURCE card to DESTINATION volume."""
     algo = HashAlgorithm.XXHASH if algorithm == "xxhash" else HashAlgorithm.MD5
     source_path = Path(source)
     dest_path = Path(destination)
 
-    # Detect camera type
-    from .volumes import _classify_volume
+    # Detect source type (camera or sound)
+    from .volumes import _classify_volume, _classify_sound_device
     vol_type = _classify_volume(source_path)
 
-    if vol_type in (VolumeType.GENERIC_STORAGE, VolumeType.UNKNOWN):
-        console.print(f"[red]Could not identify {source_path.name} as a camera card.[/red]")
-        console.print("Supported: RED (DSMC2, Komodo) and ARRI (ALEXA Mini/LF, ALEXA 35, AMIRA)")
+    is_sound = vol_type in (
+        VolumeType.SOUND_DEVICES, VolumeType.ZOOM_RECORDER,
+        VolumeType.TASCAM_RECORDER, VolumeType.SOUND_RECORDER,
+    )
+
+    if not is_sound and vol_type in (VolumeType.GENERIC_STORAGE, VolumeType.UNKNOWN):
+        console.print(f"[red]Could not identify {source_path.name} as a camera card or sound device.[/red]")
+        console.print("Supported: RED, ARRI cameras and Sound Devices, Zoom, Tascam recorders")
         return
 
-    card = parse_camera_card(source_path, vol_type)
-    display_camera_card(card)
+    if is_sound:
+        scard = parse_sound_card(source_path, vol_type)
+        display_sound_card(scard)
+        total_files = scard.total_files
+        total_gb = scard.total_gb
+        target_subfolder = "SOUND"
+    else:
+        card = parse_camera_card(source_path, vol_type)
+        display_camera_card(card)
+        total_files = card.total_files
+        total_gb = card.total_gb
+        target_subfolder = "FOOTAGE"
 
     # Project selection
     if project is None:
@@ -145,20 +164,24 @@ def transfer(source: str, destination: str, title: str, project: str, new_projec
     # Title defaults to source volume name
     if title is None:
         suggested = source_path.name
-        console.print(f"Footage goes to: {project}/FOOTAGE/{suggested}")
+        console.print(f"Files go to: {project}/{target_subfolder}/{suggested}")
         title = prompt_volume_title(suggested=suggested)
         if not title:
             console.print("[yellow]Transfer cancelled — no title.[/yellow]")
             return
 
-    footage_root = dest_path / project / "FOOTAGE"
-    dest_display = f"{dest_path.name}/{project}/FOOTAGE/{title}"
+    dest_root = dest_path / project / target_subfolder
+    dest_display = f"{dest_path.name}/{project}/{target_subfolder}/{title}"
 
-    if not prompt_confirm(f"Transfer {card.total_files} files ({card.total_gb:.2f} GB) to {dest_display}?"):
+    media_label = "sound files" if is_sound else "files"
+    if not prompt_confirm(f"Transfer {total_files} {media_label} ({total_gb:.2f} GB) to {dest_display}?"):
         console.print("[yellow]Transfer cancelled.[/yellow]")
         return
 
-    _run_transfer(card, footage_root, title, algo)
+    if is_sound:
+        _run_sound_transfer(scard, dest_root, title, algo)
+    else:
+        _run_transfer(card, dest_root, title, algo)
 
 
 @cli.command()
@@ -253,6 +276,54 @@ def _run_transfer(card: CameraCard, dest_root: Path, title: str, algorithm: Hash
     display_transfer_summary(job)
 
     # Save report
+    report_path = save_transfer_report(job)
+    console.print(f"\n[dim]Report saved: {report_path}[/dim]")
+
+    return job
+
+
+def _run_sound_transfer(card: SoundCard, dest_root: Path, title: str, algorithm: HashAlgorithm):
+    """Execute a sound transfer with progress display."""
+    job = prepare_sound_transfer_job(card, dest_root, title, algorithm)
+
+    console.print(f"\n[bold]Starting sound transfer...[/bold]")
+    console.print(f"  Source: {card.volume_name} ({card.recorder_type.value})")
+    console.print(f"  Destination: {dest_root / title}")
+    console.print(f"  Files: {job.total_files}  |  Size: {job.total_bytes / (1024**3):.2f} GB")
+    console.print(f"  Checksum: {algorithm.value}")
+    console.print()
+
+    progress = create_transfer_progress()
+
+    with progress:
+        copy_task = progress.add_task("Copying...", total=job.total_files, filename="")
+
+        def on_file_start(record, idx, total):
+            progress.update(copy_task, filename=record.relative_path)
+
+        def on_file_complete(record, idx, total):
+            progress.advance(copy_task)
+
+        verify_task = progress.add_task("Verifying...", total=job.total_files, filename="", visible=False)
+
+        def on_verify_start(record, idx, total):
+            if not progress.tasks[verify_task].visible:
+                progress.update(verify_task, visible=True)
+            progress.update(verify_task, filename=record.relative_path)
+
+        def on_verify_complete(record, idx, total, match):
+            progress.advance(verify_task)
+
+        execute_transfer(
+            job,
+            on_file_start=on_file_start,
+            on_file_complete=on_file_complete,
+            on_verify_start=on_verify_start,
+            on_verify_complete=on_verify_complete,
+        )
+
+    display_transfer_summary(job)
+
     report_path = save_transfer_report(job)
     console.print(f"\n[dim]Report saved: {report_path}[/dim]")
 
@@ -360,21 +431,36 @@ def interactive_mode(voice: bool = False, algorithm: HashAlgorithm = HashAlgorit
 
 
 def _handle_transfer_command(voice_interface: Optional[VoiceInterface], algorithm: HashAlgorithm):
-    """Handle the interactive transfer flow."""
-    # Step 1: Select source camera card
-    cam_vols = get_camera_volumes()
-    if not cam_vols:
-        _say(voice_interface, "No camera cards found. Please insert a camera card.")
+    """Handle the interactive transfer flow for both camera and sound sources."""
+    # Step 1: Select source — camera cards AND sound devices
+    media_vols = get_media_volumes()
+    if not media_vols:
+        _say(voice_interface, "No camera cards or sound devices found. Please insert media.")
         return
 
-    _say(voice_interface, f"Found {len(cam_vols)} camera card(s). Select the source.")
-    source_vol = prompt_select_volume(cam_vols, "Select source camera card")
+    _say(voice_interface, f"Found {len(media_vols)} media source(s). Select the source.")
+    source_vol = prompt_select_volume(media_vols, "Select source (camera or sound)")
     if not source_vol:
         _say(voice_interface, "Transfer cancelled.")
         return
 
-    card = parse_camera_card(source_vol.mount_point, source_vol.volume_type)
-    display_camera_card(card)
+    # Determine if this is a sound device or camera card
+    is_sound = source_vol.is_sound_device
+
+    if is_sound:
+        sound_card = parse_sound_card(source_vol.mount_point, source_vol.volume_type)
+        display_sound_card(sound_card)
+        total_files = sound_card.total_files
+        total_gb = sound_card.total_gb
+        source_name = sound_card.volume_name
+        target_subfolder = "SOUND"
+    else:
+        card = parse_camera_card(source_vol.mount_point, source_vol.volume_type)
+        display_camera_card(card)
+        total_files = card.total_files
+        total_gb = card.total_gb
+        source_name = card.volume_name
+        target_subfolder = "FOOTAGE"
 
     # Step 2: Select destination volume
     dest_vols = get_destination_volumes()
@@ -403,7 +489,6 @@ def _handle_transfer_command(voice_interface: Optional[VoiceInterface], algorith
         return
 
     if selection == "__NEW__":
-        # Create new project
         project_name = prompt_project_name()
         if not project_name:
             _say(voice_interface, "Transfer cancelled — no project name provided.")
@@ -415,31 +500,35 @@ def _handle_transfer_command(voice_interface: Optional[VoiceInterface], algorith
         project_name = selection
         _say(voice_interface, f"Using existing project: {project_name}")
 
-    # Step 4: Get a title for the footage subfolder (e.g. camera card name or shoot day)
+    # Step 4: Get a title for the subfolder
     suggested_title = source_vol.name
-    _say(voice_interface, f"Footage will be placed in {project_name}/FOOTAGE/{suggested_title}")
+    _say(voice_interface, f"Files will be placed in {project_name}/{target_subfolder}/{suggested_title}")
     title = prompt_volume_title(suggested=suggested_title)
 
     if not title:
         _say(voice_interface, "Transfer cancelled — no title provided.")
         return
 
-    # The destination root for the transfer is the project's FOOTAGE folder
-    footage_root = dest_vol.mount_point / project_name / "FOOTAGE"
+    # The destination root is the project's FOOTAGE or SOUND folder
+    dest_root = dest_vol.mount_point / project_name / target_subfolder
 
     # Step 5: Confirm
-    size_gb = card.total_gb
-    dest_display = f"{dest_vol.name}/{project_name}/FOOTAGE/{title}"
-    msg = f"Transfer {card.total_files} files ({size_gb:.2f} GB) from {card.volume_name} to {dest_display}?"
+    dest_display = f"{dest_vol.name}/{project_name}/{target_subfolder}/{title}"
+    media_label = "sound files" if is_sound else "files"
+    msg = f"Transfer {total_files} {media_label} ({total_gb:.2f} GB) from {source_name} to {dest_display}?"
     _say(voice_interface, msg)
 
     if not prompt_confirm("Proceed?"):
         _say(voice_interface, "Transfer cancelled.")
         return
 
-    # Step 6: Execute — footage_root is the FOOTAGE dir, title organizes within it
+    # Step 6: Execute
     _say(voice_interface, "Starting transfer.")
-    job = _run_transfer(card, footage_root, title, algorithm)
+
+    if is_sound:
+        job = _run_sound_transfer(sound_card, dest_root, title, algorithm)
+    else:
+        job = _run_transfer(card, dest_root, title, algorithm)
 
     if job.status == TransferStatus.VERIFIED:
         _say(voice_interface, f"Transfer complete. All {job.verified_count} files verified.")

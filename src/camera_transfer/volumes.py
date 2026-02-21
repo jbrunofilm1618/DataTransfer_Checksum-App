@@ -21,8 +21,19 @@ class VolumeType(Enum):
     ARRI_ALEXA_MINI = "arri_alexa_mini"
     ARRI_ALEXA35 = "arri_alexa35"
     ARRI_AMIRA = "arri_amira"
+    SOUND_DEVICES = "sound_devices"
+    ZOOM_RECORDER = "zoom_recorder"
+    TASCAM_RECORDER = "tascam_recorder"
+    SOUND_RECORDER = "sound_recorder"
     GENERIC_STORAGE = "generic_storage"
     UNKNOWN = "unknown"
+
+
+# Audio file extensions recognized as production sound
+SOUND_EXTENSIONS = {".wav", ".bwf", ".aiff", ".aif", ".mp3", ".flac", ".ogg", ".m4a", ".aac"}
+
+# Video file extensions (used to distinguish sound-only volumes)
+VIDEO_EXTENSIONS = {".r3d", ".ari", ".mxf", ".mov", ".mp4", ".m4v"}
 
 
 @dataclass
@@ -36,6 +47,7 @@ class Volume:
     used_bytes: int = 0
     filesystem: str = ""
     is_camera_card: bool = False
+    is_sound_device: bool = False
     camera_rolls: list[str] = field(default_factory=list)
 
     @property
@@ -82,7 +94,15 @@ def _inspect_volume(mount_point: Path) -> Optional[Volume]:
 
     name = mount_point.name
     vol_type = _classify_volume(mount_point)
-    is_camera = vol_type not in (VolumeType.GENERIC_STORAGE, VolumeType.UNKNOWN)
+    is_camera = vol_type not in (
+        VolumeType.GENERIC_STORAGE, VolumeType.UNKNOWN,
+        VolumeType.SOUND_DEVICES, VolumeType.ZOOM_RECORDER,
+        VolumeType.TASCAM_RECORDER, VolumeType.SOUND_RECORDER,
+    )
+    is_sound = vol_type in (
+        VolumeType.SOUND_DEVICES, VolumeType.ZOOM_RECORDER,
+        VolumeType.TASCAM_RECORDER, VolumeType.SOUND_RECORDER,
+    )
 
     vol = Volume(
         name=name,
@@ -92,6 +112,7 @@ def _inspect_volume(mount_point: Path) -> Optional[Volume]:
         free_bytes=free,
         used_bytes=used,
         is_camera_card=is_camera,
+        is_sound_device=is_sound,
     )
 
     if is_camera:
@@ -134,6 +155,11 @@ def _classify_volume(mount_point: Path) -> VolumeType:
     # ARRI Amira: similar to Mini but may have AMIRA in metadata
     if list(mount_point.glob("**/AMIRA*")):
         return VolumeType.ARRI_AMIRA
+
+    # --- Sound recorder detection ---
+    sound_type = _classify_sound_device(mount_point)
+    if sound_type is not None:
+        return sound_type
 
     # Check if it's a usable storage volume (has significant space)
     try:
@@ -178,6 +204,68 @@ def _find_camera_rolls(mount_point: Path, vol_type: VolumeType) -> list[str]:
     return rolls
 
 
+def _classify_sound_device(mount_point: Path) -> Optional[VolumeType]:
+    """Classify a volume as a sound recording device if applicable.
+
+    Detects:
+    - Sound Devices (MixPre, 7-series, 8-series): WAV/BWF files, often with
+      iXML metadata. May have a flat structure or scene/take folders.
+    - Zoom (F6, F8, H6, etc.): Creates ZOOM0001/ folders with WAV files.
+      Root may contain a ZOOM_* marker folder.
+    - Tascam (DR-series): Creates MUSIC/ folder or numbered folders with WAV files.
+    - Generic sound: Any volume with audio files and no video files.
+
+    Returns VolumeType or None if not a sound device.
+    """
+    # Collect audio and video files (limit depth to avoid slow scans)
+    audio_files = []
+    for ext in SOUND_EXTENSIONS:
+        audio_files.extend(mount_point.glob(f"*{ext}"))
+        audio_files.extend(mount_point.glob(f"*/*{ext}"))
+        audio_files.extend(mount_point.glob(f"*/*/*{ext}"))
+
+    if not audio_files:
+        return None
+
+    # Check for video files — if present, this is not a sound-only device
+    has_video = False
+    for ext in VIDEO_EXTENSIONS:
+        if list(mount_point.glob(f"*{ext}")) or list(mount_point.glob(f"*/*{ext}")):
+            has_video = True
+            break
+    if has_video:
+        return None
+
+    # Sound Devices: look for iXML metadata in WAV or "SoundDevices" markers
+    sd_markers = list(mount_point.glob("**/SoundDevices*")) + \
+                 list(mount_point.glob("**/Sound Devices*")) + \
+                 list(mount_point.glob("**/*.SD2"))
+    if sd_markers:
+        return VolumeType.SOUND_DEVICES
+
+    # Sound Devices MixPre: typically names files with take/scene patterns
+    # and creates a flat structure with .wav files containing BWF/iXML
+    mixpre_markers = list(mount_point.glob("**/MixPre*"))
+    if mixpre_markers:
+        return VolumeType.SOUND_DEVICES
+
+    # Zoom recorders: characteristic ZOOM#### folders
+    zoom_folders = list(mount_point.glob("ZOOM[0-9][0-9][0-9][0-9]"))
+    zoom_markers = list(mount_point.glob("ZOOM_*")) + list(mount_point.glob("**/ZOOM*"))
+    if zoom_folders or zoom_markers:
+        return VolumeType.ZOOM_RECORDER
+
+    # Tascam recorders: MUSIC folder or TASCAM markers
+    tascam_markers = list(mount_point.glob("MUSIC")) + \
+                     list(mount_point.glob("**/TASCAM*")) + \
+                     list(mount_point.glob("**/DR-*"))
+    if tascam_markers:
+        return VolumeType.TASCAM_RECORDER
+
+    # Generic: volume has audio files but no video — treat as sound recorder
+    return VolumeType.SOUND_RECORDER
+
+
 def get_destination_volumes() -> list[Volume]:
     """Get volumes suitable as transfer destinations (non-camera storage)."""
     all_vols = get_mounted_volumes()
@@ -188,6 +276,18 @@ def get_camera_volumes() -> list[Volume]:
     """Get volumes identified as camera cards."""
     all_vols = get_mounted_volumes()
     return [v for v in all_vols if v.is_camera_card]
+
+
+def get_sound_volumes() -> list[Volume]:
+    """Get volumes identified as sound recording devices."""
+    all_vols = get_mounted_volumes()
+    return [v for v in all_vols if v.is_sound_device]
+
+
+def get_media_volumes() -> list[Volume]:
+    """Get all media source volumes (camera cards and sound devices)."""
+    all_vols = get_mounted_volumes()
+    return [v for v in all_vols if v.is_camera_card or v.is_sound_device]
 
 
 # ---------- Project folder management ----------

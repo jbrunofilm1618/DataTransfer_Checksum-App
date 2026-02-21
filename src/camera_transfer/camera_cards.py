@@ -1,4 +1,4 @@
-"""Camera card structure parsing for RED and ARRI systems.
+"""Camera and sound card structure parsing for RED, ARRI, and audio recorders.
 
 Understands the on-disk layout of:
 - RED DSMC2 (Monstro, Helium, Gemini) — .RDC folder structure
@@ -6,6 +6,10 @@ Understands the on-disk layout of:
 - ARRI ALEXA Mini / Mini LF — ARRIRAW (.ari) and ProRes (.mxf)
 - ARRI ALEXA 35 — updated ARRI structure
 - ARRI AMIRA — ProRes workflow
+- Sound Devices (MixPre, 7xx, 8xx) — WAV/BWF with iXML
+- Zoom (F6, F8, H6) — ZOOM#### folder structure
+- Tascam (DR-series) — MUSIC folder or flat WAV
+- Generic sound recorders — WAV/AIFF/FLAC volumes
 """
 
 import os
@@ -17,24 +21,68 @@ from typing import Optional
 from .volumes import VolumeType
 
 
+class ContentType(Enum):
+    """High-level content classification for routing files."""
+    VIDEO = "video"
+    SOUND = "sound"
+    SIDECAR = "sidecar"
+    METADATA = "metadata"
+
+
 class MediaFormat(Enum):
-    """Camera media file formats."""
+    """Camera and audio media file formats."""
     R3D = "R3D"           # REDCODE RAW
     ARI = "ari"           # ARRIRAW
     MXF = "mxf"           # ProRes in MXF container
     MOV = "mov"           # ProRes in QuickTime
-    WAV = "wav"           # Audio
+    WAV = "wav"           # WAV / Broadcast WAV audio
+    BWF = "bwf"           # Broadcast Wave Format
+    AIFF = "aiff"         # AIFF audio
+    MP3 = "mp3"           # MP3 audio
+    FLAC = "flac"         # FLAC lossless audio
+    OGG = "ogg"           # Ogg Vorbis audio
+    M4A = "m4a"           # AAC audio
     UNKNOWN = "unknown"
+
+
+# Map file extensions to MediaFormat
+EXTENSION_TO_FORMAT = {
+    ".r3d": MediaFormat.R3D,
+    ".ari": MediaFormat.ARI,
+    ".mxf": MediaFormat.MXF,
+    ".mov": MediaFormat.MOV,
+    ".wav": MediaFormat.WAV,
+    ".bwf": MediaFormat.BWF,
+    ".aiff": MediaFormat.AIFF,
+    ".aif": MediaFormat.AIFF,
+    ".mp3": MediaFormat.MP3,
+    ".flac": MediaFormat.FLAC,
+    ".ogg": MediaFormat.OGG,
+    ".m4a": MediaFormat.M4A,
+    ".aac": MediaFormat.M4A,
+}
+
+# Which formats are audio
+AUDIO_FORMATS = {
+    MediaFormat.WAV, MediaFormat.BWF, MediaFormat.AIFF,
+    MediaFormat.MP3, MediaFormat.FLAC, MediaFormat.OGG, MediaFormat.M4A,
+}
+
+# Which formats are video
+VIDEO_FORMATS = {
+    MediaFormat.R3D, MediaFormat.ARI, MediaFormat.MXF, MediaFormat.MOV,
+}
 
 
 @dataclass
 class MediaFile:
-    """A single media file from a camera card."""
+    """A single media file from a camera or sound card."""
     path: Path
     format: MediaFormat
     size_bytes: int
     clip_name: str = ""
     reel: str = ""
+    content_type: ContentType = ContentType.VIDEO
 
     @property
     def size_gb(self) -> float:
@@ -43,6 +91,18 @@ class MediaFile:
     @property
     def filename(self) -> str:
         return self.path.name
+
+    @property
+    def is_audio(self) -> bool:
+        return self.format in AUDIO_FORMATS
+
+    @property
+    def captured_at(self) -> Optional[float]:
+        """Return the file's modification time as a proxy for capture time."""
+        try:
+            return self.path.stat().st_mtime
+        except OSError:
+            return None
 
 
 @dataclass
@@ -299,6 +359,207 @@ def get_all_transferable_files(card: CameraCard) -> list[Path]:
                     files.append(f)
 
     return files
+
+
+# ---------- Sound card parsing ----------
+
+@dataclass
+class SoundCard:
+    """Represents a parsed sound recorder card with all its tracks/takes."""
+    volume_name: str
+    mount_point: Path
+    recorder_type: VolumeType
+    rolls: list[CameraRoll] = field(default_factory=list)
+
+    @property
+    def total_bytes(self) -> int:
+        return sum(r.total_bytes for r in self.rolls)
+
+    @property
+    def total_gb(self) -> float:
+        return self.total_bytes / (1024 ** 3)
+
+    @property
+    def total_files(self) -> int:
+        return sum(r.file_count for r in self.rolls)
+
+    @property
+    def all_files(self) -> list[MediaFile]:
+        files = []
+        for roll in self.rolls:
+            files.extend(roll.files)
+        return files
+
+
+# Audio file extensions for scanning
+SOUND_SCAN_EXTENSIONS = {".wav", ".bwf", ".aiff", ".aif", ".mp3", ".flac", ".ogg", ".m4a", ".aac"}
+
+
+def parse_sound_card(mount_point: Path, volume_type: VolumeType) -> SoundCard:
+    """Parse a sound recorder card and return structured representation."""
+    card = SoundCard(
+        volume_name=mount_point.name,
+        mount_point=mount_point,
+        recorder_type=volume_type,
+    )
+
+    if volume_type == VolumeType.ZOOM_RECORDER:
+        card.rolls = _parse_zoom(mount_point)
+    elif volume_type == VolumeType.TASCAM_RECORDER:
+        card.rolls = _parse_tascam(mount_point)
+    elif volume_type == VolumeType.SOUND_DEVICES:
+        card.rolls = _parse_sound_devices(mount_point)
+    else:
+        card.rolls = _parse_generic_sound(mount_point)
+
+    return card
+
+
+def _parse_zoom(mount_point: Path) -> list[CameraRoll]:
+    """Parse Zoom recorder card structure.
+
+    Typical structure:
+        VOLUME/
+        ├── ZOOM0001/
+        │   ├── ZOOM0001_Tr1.WAV
+        │   ├── ZOOM0001_Tr2.WAV
+        │   └── ZOOM0001_LR.WAV
+        ├── ZOOM0002/
+        │   └── ...
+    """
+    rolls = []
+
+    # Look for ZOOM#### folders
+    zoom_dirs = sorted(mount_point.glob("ZOOM[0-9][0-9][0-9][0-9]"))
+
+    if zoom_dirs:
+        for zoom_dir in zoom_dirs:
+            roll = CameraRoll(name=zoom_dir.name, source_path=zoom_dir)
+            for f in sorted(zoom_dir.iterdir()):
+                if f.is_file() and f.suffix.lower() in SOUND_SCAN_EXTENSIONS:
+                    roll.files.append(_make_sound_file(f))
+            if roll.files:
+                rolls.append(roll)
+    else:
+        # Fallback to generic parsing
+        rolls = _parse_generic_sound(mount_point)
+
+    return rolls
+
+
+def _parse_tascam(mount_point: Path) -> list[CameraRoll]:
+    """Parse Tascam recorder card structure.
+
+    Typical structure:
+        VOLUME/
+        ├── MUSIC/
+        │   ├── TASCAM_0001.WAV
+        │   ├── TASCAM_0002.WAV
+        │   └── ...
+    """
+    rolls = []
+
+    music_dir = mount_point / "MUSIC"
+    if music_dir.is_dir():
+        roll = CameraRoll(name="MUSIC", source_path=music_dir)
+        for f in sorted(music_dir.rglob("*")):
+            if f.is_file() and f.suffix.lower() in SOUND_SCAN_EXTENSIONS:
+                roll.files.append(_make_sound_file(f))
+        if roll.files:
+            rolls.append(roll)
+    else:
+        rolls = _parse_generic_sound(mount_point)
+
+    return rolls
+
+
+def _parse_sound_devices(mount_point: Path) -> list[CameraRoll]:
+    """Parse Sound Devices recorder card structure.
+
+    Sound Devices recorders (MixPre, 7-series, 8-series) typically write
+    WAV/BWF files with embedded iXML metadata. Files are often organized
+    by scene/take or in a flat structure.
+
+    Common naming patterns:
+        Scene1_Take1.wav, 001_240101_1234.wav
+    """
+    rolls = []
+
+    # Group audio files by parent directory
+    dir_groups: dict[Path, list[Path]] = {}
+    for f in sorted(mount_point.rglob("*")):
+        if f.is_file() and f.suffix.lower() in SOUND_SCAN_EXTENSIONS:
+            dir_groups.setdefault(f.parent, []).append(f)
+
+    for dir_path, files in sorted(dir_groups.items()):
+        # Use directory name as the roll/session name
+        if dir_path == mount_point:
+            roll_name = mount_point.name
+        else:
+            try:
+                roll_name = str(dir_path.relative_to(mount_point))
+            except ValueError:
+                roll_name = dir_path.name
+
+        roll = CameraRoll(name=roll_name, source_path=dir_path)
+        for f in sorted(files):
+            roll.files.append(_make_sound_file(f))
+
+        # Gather sidecar metadata files in the same directory
+        for f in dir_path.iterdir():
+            if f.is_file() and f.suffix.lower() in {".xml", ".csv", ".txt", ".pdf"}:
+                roll.sidecar_files.append(f)
+
+        if roll.files:
+            rolls.append(roll)
+
+    return rolls
+
+
+def _parse_generic_sound(mount_point: Path) -> list[CameraRoll]:
+    """Parse a generic sound card — any volume with audio files."""
+    rolls = []
+
+    dir_groups: dict[Path, list[Path]] = {}
+    for f in sorted(mount_point.rglob("*")):
+        if f.is_file() and f.suffix.lower() in SOUND_SCAN_EXTENSIONS:
+            dir_groups.setdefault(f.parent, []).append(f)
+
+    for dir_path, files in sorted(dir_groups.items()):
+        if dir_path == mount_point:
+            roll_name = mount_point.name
+        else:
+            try:
+                roll_name = str(dir_path.relative_to(mount_point))
+            except ValueError:
+                roll_name = dir_path.name
+
+        roll = CameraRoll(name=roll_name, source_path=dir_path)
+        for f in sorted(files):
+            roll.files.append(_make_sound_file(f))
+        if roll.files:
+            rolls.append(roll)
+
+    return rolls
+
+
+def _make_sound_file(path: Path) -> MediaFile:
+    """Create a MediaFile for an audio file."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = 0
+
+    fmt = EXTENSION_TO_FORMAT.get(path.suffix.lower(), MediaFormat.WAV)
+
+    return MediaFile(
+        path=path,
+        format=fmt,
+        size_bytes=size,
+        clip_name=path.stem,
+        reel="",
+        content_type=ContentType.SOUND,
+    )
 
 
 def _make_media_file(path: Path, fmt: MediaFormat) -> MediaFile:
