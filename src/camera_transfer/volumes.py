@@ -190,6 +190,110 @@ def get_camera_volumes() -> list[Volume]:
     return [v for v in all_vols if v.is_camera_card]
 
 
+# ---------- Project folder management ----------
+
+PROJECT_SUBFOLDERS = ["ASSETS", "FOOTAGE", "DOCUMENTATION", "SOUND", "EXPORTS"]
+
+
+@dataclass
+class Project:
+    """Represents a project folder on a destination volume."""
+    name: str
+    path: Path
+    has_footage: bool = False
+    has_assets: bool = False
+    has_documentation: bool = False
+    has_sound: bool = False
+    has_exports: bool = False
+
+    @property
+    def is_complete(self) -> bool:
+        """Check if the project has all standard subfolders."""
+        return all([
+            self.has_footage, self.has_assets, self.has_documentation,
+            self.has_sound, self.has_exports,
+        ])
+
+    @property
+    def existing_subfolders(self) -> list[str]:
+        """List which standard subfolders exist."""
+        folders = []
+        if self.has_assets:
+            folders.append("ASSETS")
+        if self.has_footage:
+            folders.append("FOOTAGE")
+        if self.has_documentation:
+            folders.append("DOCUMENTATION")
+        if self.has_sound:
+            folders.append("SOUND")
+        if self.has_exports:
+            folders.append("EXPORTS")
+        return folders
+
+
+def scan_projects(volume_path: Path) -> list[Project]:
+    """Scan a volume for existing project folders.
+
+    A project folder is identified by containing at least one of the
+    standard subfolders (ASSETS, FOOTAGE, DOCUMENTATION, SOUND, EXPORTS).
+    """
+    projects = []
+
+    if not volume_path.exists():
+        return projects
+
+    for entry in sorted(volume_path.iterdir()):
+        if not entry.is_dir() or entry.name.startswith(".") or entry.name.startswith("_"):
+            continue
+
+        # Check if this directory contains any standard project subfolders
+        has_footage = (entry / "FOOTAGE").is_dir()
+        has_assets = (entry / "ASSETS").is_dir()
+        has_documentation = (entry / "DOCUMENTATION").is_dir()
+        has_sound = (entry / "SOUND").is_dir()
+        has_exports = (entry / "EXPORTS").is_dir()
+
+        if any([has_footage, has_assets, has_documentation, has_sound, has_exports]):
+            projects.append(Project(
+                name=entry.name,
+                path=entry,
+                has_footage=has_footage,
+                has_assets=has_assets,
+                has_documentation=has_documentation,
+                has_sound=has_sound,
+                has_exports=has_exports,
+            ))
+
+    return projects
+
+
+def create_project(volume_path: Path, project_name: str) -> Project:
+    """Create a new project folder with the standard subfolder structure.
+
+    Creates:
+        <volume_path>/<project_name>/
+            ASSETS/
+            FOOTAGE/
+            DOCUMENTATION/
+            SOUND/
+            EXPORTS/
+    """
+    project_path = volume_path / project_name
+
+    for subfolder in PROJECT_SUBFOLDERS:
+        (project_path / subfolder).mkdir(parents=True, exist_ok=True)
+
+    return Project(
+        name=project_name,
+        path=project_path,
+        has_footage=True,
+        has_assets=True,
+        has_documentation=True,
+        has_sound=True,
+        has_exports=True,
+    )
+
+
 class VolumeWatcher:
     """Watches for volume mount/unmount events by polling /Volumes."""
 

@@ -24,7 +24,7 @@ from rich.text import Text
 from rich.columns import Columns
 from rich import box
 
-from .volumes import Volume, VolumeType
+from .volumes import Volume, VolumeType, Project, PROJECT_SUBFOLDERS
 from .camera_cards import CameraCard
 from .transfer import TransferJob, TransferStatus, FileTransferRecord
 
@@ -195,6 +195,77 @@ def prompt_volume_title(suggested: str = "") -> str:
         return title or suggested
     except (EOFError, KeyboardInterrupt):
         return suggested
+
+
+def prompt_select_project(projects: list[Project], volume_name: str) -> Optional[str]:
+    """Prompt user to select an existing project or create a new one.
+
+    Returns:
+        Project name (existing or new), or None if cancelled.
+        Returns the string "__NEW__" sentinel if user chose to create new.
+    """
+    console.print()
+    console.print(f"[bold]Projects on {volume_name}:[/bold]")
+
+    if projects:
+        table = Table(box=box.ROUNDED, show_lines=True)
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Project", style="bold cyan")
+        table.add_column("Folders", style="green")
+        table.add_column("Status", style="dim")
+
+        for i, proj in enumerate(projects, 1):
+            folders = ", ".join(proj.existing_subfolders)
+            status = "[green]Complete[/green]" if proj.is_complete else "[yellow]Partial[/yellow]"
+            table.add_row(str(i), proj.name, folders, status)
+
+        # Add "Create New" option
+        table.add_row(
+            str(len(projects) + 1),
+            "[bold magenta]+ Create New Project[/bold magenta]",
+            "",
+            "",
+        )
+        console.print(table)
+    else:
+        console.print("  [dim]No existing projects found.[/dim]")
+        console.print("  [bold magenta]1. + Create New Project[/bold magenta]")
+
+    total_options = len(projects) + 1
+
+    while True:
+        try:
+            choice = input(f"\nSelect project (1-{total_options}), or 'q' to cancel: ").strip()
+            if choice.lower() == 'q':
+                return None
+            idx = int(choice) - 1
+            if idx == len(projects):
+                # "Create New" selected
+                return "__NEW__"
+            if 0 <= idx < len(projects):
+                return projects[idx].name
+            console.print("[red]Invalid selection[/red]")
+        except (ValueError, EOFError, KeyboardInterrupt):
+            return None
+
+
+def prompt_project_name() -> str:
+    """Prompt user for a new project/brand name."""
+    try:
+        name = input("Enter project/brand name: ").strip()
+        return name
+    except (EOFError, KeyboardInterrupt):
+        return ""
+
+
+def display_project_created(project: Project):
+    """Display confirmation of a newly created project folder structure."""
+    folder_tree = "\n".join(f"    {sub}/" for sub in PROJECT_SUBFOLDERS)
+    console.print(Panel(
+        f"[bold]{project.name}/[/bold]\n{folder_tree}",
+        title="Project Created",
+        border_style="green",
+    ))
 
 
 def prompt_confirm(message: str) -> bool:

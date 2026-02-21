@@ -19,6 +19,8 @@ from .volumes import (
     get_camera_volumes,
     get_destination_volumes,
     VolumeWatcher,
+    scan_projects,
+    create_project,
 )
 from .camera_cards import parse_camera_card, CameraCard
 from .checksum import HashAlgorithm
@@ -39,9 +41,12 @@ from .ui import (
     display_help,
     display_banner,
     prompt_select_volume,
+    prompt_select_project,
+    prompt_project_name,
     prompt_volume_title,
     prompt_confirm,
     create_transfer_progress,
+    display_project_created,
 )
 
 
@@ -90,14 +95,16 @@ def cameras():
 @cli.command()
 @click.argument("source", type=click.Path(exists=True))
 @click.argument("destination", type=click.Path(exists=True))
-@click.option("--title", "-t", prompt="Volume/project title", help="Folder name for the transfer.")
+@click.option("--title", "-t", default=None, help="Folder name for the footage within the project.")
+@click.option("--project", "-p", default=None, help="Project name on the destination volume.")
+@click.option("--new-project", is_flag=True, default=False, help="Create a new project folder structure.")
 @click.option(
     "--algorithm",
     type=click.Choice(["xxhash", "md5"]),
     default="xxhash",
     help="Checksum algorithm.",
 )
-def transfer(source: str, destination: str, title: str, algorithm: str):
+def transfer(source: str, destination: str, title: str, project: str, new_project: bool, algorithm: str):
     """Transfer footage from SOURCE camera card to DESTINATION volume."""
     algo = HashAlgorithm.XXHASH if algorithm == "xxhash" else HashAlgorithm.MD5
     source_path = Path(source)
@@ -115,11 +122,43 @@ def transfer(source: str, destination: str, title: str, algorithm: str):
     card = parse_camera_card(source_path, vol_type)
     display_camera_card(card)
 
-    if not prompt_confirm(f"Transfer {card.total_files} files ({card.total_gb:.2f} GB) to {dest_path / title}?"):
+    # Project selection
+    if project is None:
+        projects = scan_projects(dest_path)
+        selection = prompt_select_project(projects, dest_path.name)
+        if selection is None:
+            console.print("[yellow]Transfer cancelled.[/yellow]")
+            return
+        if selection == "__NEW__":
+            new_project = True
+            project = prompt_project_name()
+            if not project:
+                console.print("[yellow]Transfer cancelled — no project name.[/yellow]")
+                return
+        else:
+            project = selection
+
+    if new_project:
+        proj = create_project(dest_path, project)
+        display_project_created(proj)
+
+    # Title defaults to source volume name
+    if title is None:
+        suggested = source_path.name
+        console.print(f"Footage goes to: {project}/FOOTAGE/{suggested}")
+        title = prompt_volume_title(suggested=suggested)
+        if not title:
+            console.print("[yellow]Transfer cancelled — no title.[/yellow]")
+            return
+
+    footage_root = dest_path / project / "FOOTAGE"
+    dest_display = f"{dest_path.name}/{project}/FOOTAGE/{title}"
+
+    if not prompt_confirm(f"Transfer {card.total_files} files ({card.total_gb:.2f} GB) to {dest_display}?"):
         console.print("[yellow]Transfer cancelled.[/yellow]")
         return
 
-    _run_transfer(card, dest_path, title, algo)
+    _run_transfer(card, footage_root, title, algo)
 
 
 @cli.command()
@@ -349,27 +388,58 @@ def _handle_transfer_command(voice_interface: Optional[VoiceInterface], algorith
         _say(voice_interface, "Transfer cancelled.")
         return
 
-    # Step 3: Get volume title
+    # Step 3: Select or create a project on the destination volume
+    projects = scan_projects(dest_vol.mount_point)
+
+    if projects:
+        _say(voice_interface, f"Found {len(projects)} project(s) on {dest_vol.name}. Select one or create new.")
+    else:
+        _say(voice_interface, f"No projects found on {dest_vol.name}. Let's create one.")
+
+    selection = prompt_select_project(projects, dest_vol.name)
+
+    if selection is None:
+        _say(voice_interface, "Transfer cancelled.")
+        return
+
+    if selection == "__NEW__":
+        # Create new project
+        project_name = prompt_project_name()
+        if not project_name:
+            _say(voice_interface, "Transfer cancelled — no project name provided.")
+            return
+        project = create_project(dest_vol.mount_point, project_name)
+        display_project_created(project)
+        _say(voice_interface, f"Created project '{project_name}' with standard folder structure.")
+    else:
+        project_name = selection
+        _say(voice_interface, f"Using existing project: {project_name}")
+
+    # Step 4: Get a title for the footage subfolder (e.g. camera card name or shoot day)
     suggested_title = source_vol.name
-    _say(voice_interface, f"Suggested folder name: {suggested_title}")
+    _say(voice_interface, f"Footage will be placed in {project_name}/FOOTAGE/{suggested_title}")
     title = prompt_volume_title(suggested=suggested_title)
 
     if not title:
         _say(voice_interface, "Transfer cancelled — no title provided.")
         return
 
-    # Step 4: Confirm
+    # The destination root for the transfer is the project's FOOTAGE folder
+    footage_root = dest_vol.mount_point / project_name / "FOOTAGE"
+
+    # Step 5: Confirm
     size_gb = card.total_gb
-    msg = f"Transfer {card.total_files} files ({size_gb:.2f} GB) from {card.volume_name} to {dest_vol.name}/{title}?"
+    dest_display = f"{dest_vol.name}/{project_name}/FOOTAGE/{title}"
+    msg = f"Transfer {card.total_files} files ({size_gb:.2f} GB) from {card.volume_name} to {dest_display}?"
     _say(voice_interface, msg)
 
     if not prompt_confirm("Proceed?"):
         _say(voice_interface, "Transfer cancelled.")
         return
 
-    # Step 5: Execute
+    # Step 6: Execute — footage_root is the FOOTAGE dir, title organizes within it
     _say(voice_interface, "Starting transfer.")
-    job = _run_transfer(card, dest_vol.mount_point, title, algorithm)
+    job = _run_transfer(card, footage_root, title, algorithm)
 
     if job.status == TransferStatus.VERIFIED:
         _say(voice_interface, f"Transfer complete. All {job.verified_count} files verified.")
