@@ -8,3 +8,4 @@ build/
 
 # feeder-streetview-inspection generated output (images, manifests, reports)
 feeder-streetview-inspection/streetview_out/
+feeder-streetview-inspection/out/
