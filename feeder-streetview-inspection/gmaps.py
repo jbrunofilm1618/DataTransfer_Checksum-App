@@ -156,6 +156,53 @@ def fetch_satellite(lat, lng, dest, zoom=20, size="640x640", scale=2):
     return False
 
 
+def nearby_runs(lat, lng, lines, radius_m):
+    """Contiguous runs of line vertices near (lat,lng), extended one vertex past
+    the radius on each side so the drawn line reaches the tile edges."""
+    center = (lat, lng)
+    runs = []
+    for ln in lines:
+        near = [i for i, p in enumerate(ln) if haversine(center, p) <= radius_m]
+        if not near:
+            continue
+        keep = set()
+        for i in near:
+            keep.update((i - 1, i, i + 1))
+        idxs = sorted(x for x in keep if 0 <= x < len(ln))
+        run = []
+        prev = None
+        for i in idxs:
+            if prev is not None and i != prev + 1:
+                if len(run) >= 2:
+                    runs.append(run)
+                run = []
+            run.append(ln[i])
+            prev = i
+        if len(run) >= 2:
+            runs.append(run)
+    return runs
+
+
+def fetch_satellite_overlay(lat, lng, lines, dest, zoom=20, size="640x640", scale=2,
+                            radius_m=130, line_color="0x00ffffff", weight=4):
+    """Satellite tile with the nearby feeder line(s) drawn on top + a marker at
+    the junction. Falls back to a plain tile if no line is nearby."""
+    params = [
+        ("center", f"{lat},{lng}"), ("zoom", str(zoom)), ("size", size),
+        ("scale", str(scale)), ("maptype", "satellite"),
+        ("markers", f"color:red|size:mid|{lat},{lng}"), ("key", key()),
+    ]
+    for run in nearby_runs(lat, lng, lines, radius_m):
+        pts = "|".join(f"{p[0]:.6f},{p[1]:.6f}" for p in run)
+        params.append(("path", f"color:{line_color}|weight:{weight}|{pts}"))
+    r = requests.get(STATIC_URL, params=params, timeout=60)
+    if r.ok and r.headers.get("content-type", "").startswith("image"):
+        with open(dest, "wb") as f:
+            f.write(r.content)
+        return True
+    return False
+
+
 def reverse_geocode(lat, lng):
     try:
         j = requests.get(GEOCODE_URL, params={"latlng": f"{lat},{lng}", "key": key()},

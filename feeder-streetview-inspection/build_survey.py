@@ -31,7 +31,7 @@ import zipfile
 import gmaps
 
 OUT = "out"
-HIRES = os.path.join(OUT, "hires")
+HIRES = os.path.join(OUT, "overlay")   # satellite tiles with the feeder line drawn on
 SV_DIR = os.path.join(OUT, "streetview")
 PDF_NAME = "Mescalero_West_PhaseA_Survey.pdf"
 
@@ -74,14 +74,15 @@ def fetch_assets(kmz):
     os.makedirs(HIRES, exist_ok=True)
     os.makedirs(SV_DIR, exist_ok=True)
     kml = gmaps.load_kml(kmz)
+    lines = gmaps.parse_lines(kml)
     tk = gmaps.parse_named_points(kml)
     rows = []
     for i, (nm, lat, lng) in enumerate(tk):
         jid = f"J{i:02d}"
         if not os.path.exists(f"{HIRES}/{jid}_z19.jpg"):
-            gmaps.fetch_satellite(lat, lng, f"{HIRES}/{jid}_z19.jpg", zoom=19, scale=2)
+            gmaps.fetch_satellite_overlay(lat, lng, lines, f"{HIRES}/{jid}_z19.jpg", zoom=19, radius_m=150)
         if not os.path.exists(f"{HIRES}/{jid}_z21.jpg"):
-            gmaps.fetch_satellite(lat, lng, f"{HIRES}/{jid}_z21.jpg", zoom=21, scale=2)
+            gmaps.fetch_satellite_overlay(lat, lng, lines, f"{HIRES}/{jid}_z21.jpg", zoom=21, radius_m=45, weight=5)
         ok, _, _ = gmaps.sv_metadata(lat, lng)
         if ok and not glob.glob(f"{SV_DIR}/{jid}_*.jpg"):
             for side, h in (("L", 0), ("R", 90), ("B", 180), ("R2", 270)):
