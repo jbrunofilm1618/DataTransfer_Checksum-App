@@ -75,9 +75,23 @@ def _c():
     return _client
 
 
+def _media_type(raw):
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if raw[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    if raw[:4] == b"GIF8":
+        return "image/gif"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/jpeg"
+
+
 def _score(img_path, rubric):
     with open(img_path, "rb") as f:
-        data = base64.standard_b64encode(f.read()).decode("utf-8")
+        raw = f.read()
+    media = _media_type(raw)
+    data = base64.standard_b64encode(raw).decode("utf-8")
     resp = _c().messages.create(
         model=MODEL,
         max_tokens=1024,
@@ -87,7 +101,7 @@ def _score(img_path, rubric):
             "role": "user",
             "content": [
                 {"type": "image",
-                 "source": {"type": "base64", "media_type": "image/jpeg", "data": data}},
+                 "source": {"type": "base64", "media_type": media, "data": data}},
                 {"type": "text", "text": "Score this image per the rubric."},
             ],
         }],
