@@ -93,8 +93,16 @@ def fetch_assets(kmz):
     return rows
 
 
-def build_html(rows, scores, lean):
+def _sv_files(jid):
+    """Prefer along-line frames (best for judging tree height vs. the line)."""
+    along = sorted(glob.glob(os.path.join(OUT, "sv_along", f"{jid}_*.jpg")))
+    return along[:2] if along else sorted(glob.glob(f"{SV_DIR}/{jid}_*.jpg"))[:2]
+
+
+def build_html(rows, scores, lean, min_score=None):
     rows = sorted(rows, key=lambda r: (0, -scores[r[0]][0]) if r[0] in scores else (1, 0))
+    if min_score is not None:
+        rows = [r for r in rows if r[0] in scores and scores[r[0]][0] >= min_score]
     max_w = 820 if lean else None
     scored_n = 0
     cards = []
@@ -102,7 +110,7 @@ def build_html(rows, scores, lean):
         addr = gmaps.reverse_geocode(lat, lng) or "(no street address — remote/off-road)"
         z19 = b64(f"{HIRES}/{jid}_z19.jpg", max_w)
         z21 = b64(f"{HIRES}/{jid}_z21.jpg", max_w)
-        svs = [b64(f, max_w) for f in sorted(glob.glob(f"{SV_DIR}/{jid}_*.jpg"))[:2]]
+        svs = [b64(f, max_w) for f in _sv_files(jid)]
         if jid in scores:
             scored_n += 1
             badge = f'<span class=score>risk {scores[jid][0]}/5</span>'
@@ -131,27 +139,37 @@ h1{margin-bottom:2px}.lead{color:#555;margin-top:0;max-width:62em;font-size:.95e
 .imgs{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
 figure{margin:0}figcaption{font-size:.75em;color:#666;margin-bottom:2px}
 img{max-width:300px;width:100%;border-radius:5px;border:1px solid #ccc}"""
+    if min_score is not None:
+        title = "Likely Problem Areas — Vegetation Too Close to the Feeder"
+        lead = (f"Mescalero West, Phase A. Filtered to the {len(rows)} location(s) scored "
+                f"{min_score}/5 or higher — where vegetation is at/above conductor height and "
+                f"close to the line. Feeder route drawn (cyan) on each satellite image with a "
+                f"red junction marker; Street View aimed along the line. Coordinates and street "
+                f"addresses included. Work these top-down. (Junctions not yet screened are "
+                f"excluded; more may be added as screening completes.)")
+    else:
+        title = "Vegetation Proximity Survey"
+        lead = (f"21.2-mi feeder, {len(rows)} lateral takeoff junctions. High-res satellite "
+                f"(line overlaid) and Street View where available, with coordinates and "
+                f"reverse-geocoded addresses, ranked by vegetation proximity. {scored_n}/{len(rows)} "
+                f"screened. Method ranks <i>likelihood</i> for field prioritization — not a LiDAR survey.")
     return f"""<!doctype html><html><head><meta charset=utf-8>
-<title>Mescalero West Phase A — Vegetation Survey</title><style>{style}</style></head><body>
-<h1>Mescalero West, Phase A — Vegetation Proximity Survey</h1>
-<p class=lead>21.2-mi feeder, {len(rows)} lateral takeoff junctions. High-res satellite
-(context + close-up) and Street View where available, with coordinates and reverse-geocoded
-addresses, ranked by vegetation proximity to prioritize the intermittent ground-fault search.
-{scored_n}/{len(rows)} junctions screened. Method ranks <i>likelihood</i> for field
-prioritization — not a LiDAR clearance survey.</p>
+<title>Mescalero West Phase A — {html.escape(title)}</title><style>{style}</style></head><body>
+<h1>Mescalero West, Phase A — {title}</h1>
+<p class=lead>{lead}</p>
 {''.join(cards)}</body></html>"""
 
 
-def render_pdf(lean_path):
+def render_pdf(html_path, pdf_name):
     chrome = next((c for c in CHROME_CANDIDATES
                    if os.path.exists(c) or _on_path(c)), None)
     if not chrome:
         print("No Chromium found — skipping PDF.")
         return
-    pdf = os.path.join(OUT, PDF_NAME)
+    pdf = os.path.join(OUT, pdf_name)
     subprocess.run([chrome, "--headless", "--no-sandbox", "--disable-gpu",
                     "--no-pdf-header-footer",
-                    f"--print-to-pdf={pdf}", f"file://{os.path.abspath(lean_path)}"],
+                    f"--print-to-pdf={pdf}", f"file://{os.path.abspath(html_path)}"],
                    check=False, capture_output=True)
     if os.path.exists(pdf):
         print(f"Wrote {pdf}")
@@ -166,6 +184,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("kmz")
     ap.add_argument("--pdf", action="store_true", help="also render a PDF via Chromium")
+    ap.add_argument("--min-score", type=int, default=3,
+                    help="threshold for the problem-areas-only document (default 3)")
     args = ap.parse_args()
     gmaps.key()
     os.makedirs(OUT, exist_ok=True)
@@ -173,11 +193,16 @@ def main():
     rows = fetch_assets(args.kmz)
     scores = load_scores()
 
-    full = build_html(rows, scores, lean=False)
-    open(os.path.join(OUT, "survey_document.html"), "w").write(full)
+    # Full survey (every junction)
+    open(os.path.join(OUT, "survey_document.html"), "w").write(build_html(rows, scores, lean=False))
     lean_path = os.path.join(OUT, "survey_document_lean.html")
     open(lean_path, "w").write(build_html(rows, scores, lean=True))
     print("Wrote survey_document.html and survey_document_lean.html")
+
+    # Problem-areas-only document (score >= min_score)
+    prob_path = os.path.join(OUT, "problem_areas.html")
+    open(prob_path, "w").write(build_html(rows, scores, lean=True, min_score=args.min_score))
+    print(f"Wrote problem_areas.html (score >= {args.min_score})")
 
     with zipfile.ZipFile(os.path.join(OUT, "hires.zip"), "w", zipfile.ZIP_DEFLATED) as z:
         for f in glob.glob(f"{HIRES}/*.jpg"):
@@ -185,7 +210,8 @@ def main():
     print("Wrote hires.zip")
 
     if args.pdf:
-        render_pdf(lean_path)
+        render_pdf(lean_path, PDF_NAME)
+        render_pdf(prob_path, "Mescalero_West_PhaseA_Problem_Areas.pdf")
 
 
 if __name__ == "__main__":

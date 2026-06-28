@@ -35,20 +35,24 @@ Score 0 to 5:
   0 = open ground, cleared right-of-way, or no vegetation near the corridor"""
 
 STREETVIEW_RUBRIC = """You are inspecting a Google Street View image taken along
-an overhead electrical distribution feeder, looking for vegetation that could
-cause an intermittent ground fault by contacting or nearly contacting the lines
-in high wind.
+an overhead electrical distribution feeder. The goal is to find vegetation that
+is TALLER THAN the conductors — trees whose crowns rise to or above the height
+of the power lines, close enough to the line that they could fall, lean, or grow
+into it and cause a ground fault in high wind.
 
-Find the overhead conductors and poles. Judge how close trees/branches are to
-the PRIMARY conductors.
+Find the overhead conductors / the pole crossarm height. Then judge the trees
+NEAR the line by HEIGHT relative to the conductors:
 
 Score 0 to 5:
-  5 = branches/foliage touching or overhanging the conductors (imminent risk)
-  4 = vegetation within roughly a foot of the conductors
-  3 = within a few feet; growing toward the lines
-  2 = nearby trees, clear separation
-  1 = vegetation present, well clear
-  0 = no conductors visible, or nothing near them"""
+  5 = tree crowns clearly ABOVE the conductors AND directly over/touching the line — overtopping, imminent risk
+  4 = trees as tall or taller than the line, right at the line corridor (within a span-width)
+  3 = trees reaching close to conductor height beside the line, leaning/growing toward it
+  2 = trees present near the line but clearly shorter than the conductors
+  1 = only low vegetation / short brush near the line
+  0 = no conductors visible, or no trees near the line
+
+Report in 'reason' whether the nearest trees are ABOVE, AT, or BELOW conductor
+height, and roughly how far they are from the line."""
 
 SCHEMA = {
     "type": "object",
