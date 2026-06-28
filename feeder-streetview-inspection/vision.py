@@ -12,9 +12,11 @@ Both return a dict: {"score": 0-5, "reason": str, ...}. Uses the Anthropic API
 import base64
 import json
 
+import os
 import anthropic
 
-MODEL = "claude-opus-4-8"
+MODEL = os.environ.get("VISION_MODEL", "claude-opus-4-8")
+FAST_MODEL = "claude-haiku-4-5"   # cheap/fast bulk screen; verify hits with MODEL
 
 OVERHEAD_RUBRIC = """You are looking straight down at a satellite image centered
 on an overhead electrical line corridor (the right-of-way for a distribution
@@ -87,13 +89,13 @@ def _media_type(raw):
     return "image/jpeg"
 
 
-def _score(img_path, rubric):
+def _score(img_path, rubric, model=None):
     with open(img_path, "rb") as f:
         raw = f.read()
     media = _media_type(raw)
     data = base64.standard_b64encode(raw).decode("utf-8")
     resp = _c().messages.create(
-        model=MODEL,
+        model=model or MODEL,
         max_tokens=1024,
         system=rubric,
         output_config={"format": {"type": "json_schema", "schema": SCHEMA}},
@@ -110,9 +112,9 @@ def _score(img_path, rubric):
     return json.loads(text)
 
 
-def score_overhead(img_path):
-    return _score(img_path, OVERHEAD_RUBRIC)
+def score_overhead(img_path, model=None):
+    return _score(img_path, OVERHEAD_RUBRIC, model)
 
 
-def score_streetview(img_path):
-    return _score(img_path, STREETVIEW_RUBRIC)
+def score_streetview(img_path, model=None):
+    return _score(img_path, STREETVIEW_RUBRIC, model)
