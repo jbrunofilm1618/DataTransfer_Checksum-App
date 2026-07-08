@@ -9,3 +9,7 @@ build/
 # feeder-streetview-inspection generated output (images, manifests, reports)
 feeder-streetview-inspection/streetview_out/
 feeder-streetview-inspection/out/
+feeder-streetview-inspection/out_bc/
+feeder-streetview-inspection/out_roadwalk/
+feeder-streetview-inspection/*.log
+feeder-streetview-inspection/out_*.log
