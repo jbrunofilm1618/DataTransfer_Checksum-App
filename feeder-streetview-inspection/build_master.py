@@ -15,6 +15,7 @@ import argparse, base64, csv, glob, html, io, json, os, subprocess
 import gmaps
 
 OUT = "out"
+TITLE = "Mescalero West, Phase A"
 PDF_NAME = "Mescalero_West_PhaseA_MASTER_Trouble_Areas.pdf"
 CHROME = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome", "chromium", "google-chrome"]
 
@@ -76,14 +77,21 @@ def dedupe(items, radius_m=40):
 
 
 def main():
+    global OUT, PDF_NAME, TITLE
     ap = argparse.ArgumentParser()
-    ap.add_argument("kmz")
+    ap.add_argument("kmz", nargs="?", help="optional — omit for road-walk (no junction) runs")
+    ap.add_argument("--dir", default="out", help="results directory (default out)")
+    ap.add_argument("--title", default="Mescalero West, Phase A")
     ap.add_argument("--min", type=int, default=4, help="include locations at/above this score (default 4)")
     ap.add_argument("--pdf", action="store_true")
     args = ap.parse_args()
     gmaps.key()
+    OUT = args.dir
+    TITLE = args.title
+    PDF_NAME = args.title.replace(",", "").replace(" ", "_") + "_MASTER_Trouble_Areas.pdf"
 
-    items = dedupe(junction_items(args.kmz, args.min) + midspan_items(args.min))
+    items = junction_items(args.kmz, args.min) if args.kmz else []
+    items = dedupe(items + midspan_items(args.min))
     cards = []
     for rank, it in enumerate(items, 1):
         addr = gmaps.reverse_geocode(it["lat"], it["lng"]) or "(no street address — remote/off-road)"
@@ -112,10 +120,10 @@ h1{margin-bottom:2px}.lead{color:#555;margin-top:0;max-width:64em;font-size:.95e
 .imgs{display:flex;gap:9px;flex-wrap:wrap;margin-top:6px}
 img{max-width:330px;width:100%;border-radius:5px;border:1px solid #ccc}"""
     doc = f"""<!doctype html><html><head><meta charset=utf-8>
-<title>Mescalero West Phase A — Master Trouble Areas</title><style>{style}</style></head><body>
-<h1>Mescalero West, Phase A — Highly-Likely Vegetation Trouble Areas</h1>
+<title>{html.escape(TITLE)} — Master Trouble Areas</title><style>{style}</style></head><body>
+<h1>{html.escape(TITLE)} — Highly-Likely Vegetation Trouble Areas</h1>
 <p class=lead>Master list for the intermittent ground-fault search. {len(items)} location(s)
-scored {args.min}/5 or higher across the 21.2-mi feeder — junctions and mid-span — ranked
+scored {args.min}/5 or higher across the surveyed area — ranked
 worst-first, de-duplicated. Each has the feeder line drawn (cyan) on a high-res satellite
 image plus Street View where it exists, with coordinates and street address for the crew.
 {n_sv} are Street-View-validatable; the rest are remote (overhead-only) and flagged for a

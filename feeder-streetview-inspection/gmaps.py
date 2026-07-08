@@ -132,6 +132,17 @@ def sv_metadata(lat, lng):
     return j.get("status") == "OK", j.get("date", ""), j.get("pano_id", "")
 
 
+def sv_metadata_full(lat, lng):
+    """Like sv_metadata but also returns the pano's snapped location."""
+    j = requests.get(SV_META_URL, params={"location": f"{lat},{lng}", "key": key()},
+                     timeout=30).json()
+    if j.get("status") != "OK":
+        return None
+    loc = j.get("location", {})
+    return {"pano_id": j.get("pano_id", ""), "date": j.get("date", ""),
+            "lat": loc.get("lat"), "lng": loc.get("lng")}
+
+
 def fetch_streetview(lat, lng, heading, dest, size="640x640", pitch=10, fov=75):
     r = requests.get(SV_IMG_URL, params={
         "size": size, "location": f"{lat},{lng}", "heading": round(heading),

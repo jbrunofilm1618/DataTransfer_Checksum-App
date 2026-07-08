@@ -56,6 +56,27 @@ Score 0 to 5:
 Report in 'reason' whether the nearest trees are ABOVE, AT, or BELOW conductor
 height, and roughly how far they are from the line."""
 
+ROADWALK_RUBRIC = """You are inspecting a Google Street View image taken on a road
+in the Santa Cruz Mountains, California — a CPUC High Fire-Threat District. You are
+looking for overhead electric DISTRIBUTION lines (wood poles, crossarms, uninsulated
+conductors) and judging vegetation clearance against California standards
+(CPUC General Order 95, Rule 35): minimum 4 ft radial clearance in HFTD, 12 ft
+recommended at time of trim, plus fall-in risk from trees taller than the line.
+
+First determine whether overhead distribution conductors are visible AT ALL.
+Ignore service drops to single houses and telecom-only lines where you can tell.
+
+Score 0 to 5:
+  5 = vegetation touching/overhanging the conductors, or clearly within ~4 ft (violation-level)
+  4 = vegetation within the ~12 ft recommended envelope, or tree crowns at/above conductor height directly beside the line
+  3 = trees taller than the line within falling distance, or vegetation growing toward the line
+  2 = trees near the corridor but below conductor height and outside the envelope
+  1 = only low vegetation near the line
+  0 = NO distribution conductors visible in this image, or nothing near them
+
+In 'reason', state whether conductors are visible, and whether the nearest
+vegetation is ABOVE, AT, or BELOW conductor height and roughly how far away."""
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -118,3 +139,7 @@ def score_overhead(img_path, model=None):
 
 def score_streetview(img_path, model=None):
     return _score(img_path, STREETVIEW_RUBRIC, model)
+
+
+def score_roadwalk(img_path, model=None):
+    return _score(img_path, ROADWALK_RUBRIC, model)
