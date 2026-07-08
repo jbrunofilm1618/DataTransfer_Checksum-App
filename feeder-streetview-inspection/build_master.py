@@ -20,7 +20,7 @@ PDF_NAME = "Mescalero_West_PhaseA_MASTER_Trouble_Areas.pdf"
 CHROME = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome", "chromium", "google-chrome"]
 
 
-def b64(path, max_w=900, q=82):
+def b64(path, max_w=640, q=78):
     if not path or not os.path.exists(path):
         return ""
     from PIL import Image
