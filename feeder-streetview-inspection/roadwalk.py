@@ -132,8 +132,10 @@ def phase_c_score(args, d, kept):
     all_csv = os.path.join(d, "midspan_all.csv")
     done = set()
     if os.path.exists(all_csv):
-        done = {r["id"] for r in csv.DictReader(open(all_csv))}
-        print(f"C: resuming — {len(done)} panos already scored.", flush=True)
+        for r in csv.DictReader(open(all_csv)):
+            if not (r["fast"] == "-1" and r["reason"].startswith("err:")):
+                done.add(r["id"])
+        print(f"C: resuming — {len(done)} panos already scored (error rows will be retried).", flush=True)
     f_all = open(all_csv, "a", newline="")
     w = csv.writer(f_all)
     if not done:
@@ -153,6 +155,9 @@ def phase_c_score(args, d, kept):
                 if int(r["score"]) > best:
                     best, reason = int(r["score"]), r.get("reason", "")
             except Exception as e:
+                msg = str(e)
+                if "credit balance" in msg or "authentication_error" in msg:
+                    raise SystemExit(f"FATAL-BILLING: {msg[:160]}")
                 reason = reason or f"err: {e}"
         return p, best, reason
 
