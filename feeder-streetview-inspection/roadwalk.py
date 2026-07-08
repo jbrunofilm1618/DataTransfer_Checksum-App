@@ -25,10 +25,23 @@ import csv
 import math
 import os
 import shutil
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import gmaps
 import vision
+
+
+def _safe(fn, *a, retries=2, **kw):
+    """Run fn with retries; return None on persistent failure instead of
+    letting one network timeout kill a multi-thousand-call phase."""
+    for i in range(retries + 1):
+        try:
+            return fn(*a, **kw)
+        except Exception:
+            if i == retries:
+                return None
+            time.sleep(1 + i)
 
 GRID_STEP_M = 50
 THIN_M = 45
@@ -59,7 +72,7 @@ def phase_a_panos(args, d):
     print(f"A: probing {len(pts)} grid points (free metadata)...", flush=True)
     panos = {}
     with ThreadPoolExecutor(max_workers=8) as ex:
-        for i, m in enumerate(ex.map(lambda p: gmaps.sv_metadata_full(*p), pts), 1):
+        for i, m in enumerate(ex.map(lambda p: _safe(gmaps.sv_metadata_full, *p), pts), 1):
             if m and m["pano_id"] and m["lat"] is not None:
                 panos[m["pano_id"]] = m
             if i % 1000 == 0:
@@ -107,7 +120,7 @@ def phase_b_frames(args, d, panos):
             if not os.path.exists(dest):
                 jobs.append((p["lat"], p["lng"], h, dest))
     with ThreadPoolExecutor(max_workers=6) as ex:
-        list(ex.map(lambda j: gmaps.fetch_streetview(j[0], j[1], j[2], j[3], **FRAME_KW), jobs))
+        list(ex.map(lambda j: _safe(gmaps.fetch_streetview, j[0], j[1], j[2], j[3], **FRAME_KW), jobs))
     print(f"B: fetched {len(jobs)} new frames.", flush=True)
     return kept
 
@@ -163,8 +176,8 @@ def phase_c_score(args, d, kept):
                 final = vbest if vbest >= 0 else fast
                 if final >= MIN:
                     n_prob += 1
-                    gmaps.fetch_satellite_overlay(p["lat"], p["lng"], [],
-                        os.path.join(prob_img_dir, f"{p['id']}.jpg"), zoom=20, radius_m=1)
+                    _safe(gmaps.fetch_satellite_overlay, p["lat"], p["lng"], [],
+                          os.path.join(prob_img_dir, f"{p['id']}.jpg"), zoom=20, radius_m=1)
                     try:
                         shutil.copyfile(vfile, os.path.join(prob_img_dir, f"{p['id']}_sv.jpg"))
                     except Exception:
