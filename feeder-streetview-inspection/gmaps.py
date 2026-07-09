@@ -195,15 +195,21 @@ def nearby_runs(lat, lng, lines, radius_m):
 
 
 def fetch_satellite_overlay(lat, lng, lines, dest, zoom=20, size="640x640", scale=2,
-                            radius_m=130, line_color="0x00ffffff", weight=4):
+                            radius_m=130, line_color="0x00ffffff", weight=4,
+                            max_runs=None, marker=True):
     """Satellite tile with the nearby feeder line(s) drawn on top + a marker at
     the junction. Falls back to a plain tile if no line is nearby."""
     params = [
         ("center", f"{lat},{lng}"), ("zoom", str(zoom)), ("size", size),
-        ("scale", str(scale)), ("maptype", "satellite"),
-        ("markers", f"color:red|size:mid|{lat},{lng}"), ("key", key()),
+        ("scale", str(scale)), ("maptype", "satellite"), ("key", key()),
     ]
-    for run in nearby_runs(lat, lng, lines, radius_m):
+    if marker:
+        params.append(("markers", f"color:red|size:mid|{lat},{lng}"))
+    runs = nearby_runs(lat, lng, lines, radius_m)
+    if max_runs and len(runs) > max_runs:
+        runs.sort(key=lambda r: min(haversine((lat, lng), p) for p in r))
+        runs = runs[:max_runs]
+    for run in runs:
         pts = "|".join(f"{p[0]:.6f},{p[1]:.6f}" for p in run)
         params.append(("path", f"color:{line_color}|weight:{weight}|{pts}"))
     r = requests.get(STATIC_URL, params=params, timeout=60)

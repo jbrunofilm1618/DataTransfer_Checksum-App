@@ -56,6 +56,23 @@ Score 0 to 5:
 Report in 'reason' whether the nearest trees are ABOVE, AT, or BELOW conductor
 height, and roughly how far they are from the line."""
 
+COARSE_RUBRIC = """You are looking at a WIDE satellite view (~1 km across) of
+terrain in southern New Mexico. An overhead electric line route is drawn on the
+image as a bright CYAN line. This is a coarse first-pass screen: decide whether
+the drawn line passes through or beside TREE COVER anywhere in this tile —
+forest, woodland, tree rows, riparian trees — as opposed to open desert,
+grassland, scrub, or bare ground.
+
+Score 0 to 5:
+  5 = line runs through dense forest/woodland for much of its path here
+  4 = line passes through or directly beside substantial tree cover in places
+  3 = scattered trees/woodland patches close to the line
+  2 = sparse low shrubs near the line; a few isolated trees not clearly near it
+  1 = open desert/grass/scrub along the line; vegetation clearly low
+  0 = no drawn line visible, or barren ground
+
+This is a recall pass — when unsure between two scores, pick the higher."""
+
 ROADWALK_RUBRIC = """You are inspecting a Google Street View image taken on a road
 in the Santa Cruz Mountains, California — a CPUC High Fire-Threat District. You are
 looking for overhead electric DISTRIBUTION lines (wood poles, crossarms, uninsulated
@@ -143,3 +160,7 @@ def score_streetview(img_path, model=None):
 
 def score_roadwalk(img_path, model=None):
     return _score(img_path, ROADWALK_RUBRIC, model)
+
+
+def score_coarse(img_path, model=None):
+    return _score(img_path, COARSE_RUBRIC, model or FAST_MODEL)
