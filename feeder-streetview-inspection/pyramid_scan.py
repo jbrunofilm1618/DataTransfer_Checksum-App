@@ -38,22 +38,26 @@ L2_RADIUS_M = 300      # how far around each L1 hit Level 2 sweeps
 L2_MIN = 3
 
 
-def parse_overhead_lines(kml, exclude_re=r"underground"):
-    """Folder-aware line extraction: skip Placemarks inside excluded folders."""
+def parse_overhead_lines(kml, exclude_re=r"underground", include_re=None):
+    """Folder-aware line extraction: skip Placemarks inside excluded folders.
+    If include_re is given, keep only Placemarks under a folder matching it
+    (e.g. one district/feeder of a system-wide KMZ)."""
     root = ET.fromstring(kml)
     sn = gmaps.strip_ns
     lines = []
 
-    def walk(el, excluded):
+    def walk(el, excluded, included):
         for ch in el:
             tag = sn(ch.tag)
             if tag == "Folder":
                 nm = ch.find("./{*}name")
                 name = (nm.text or "") if nm is not None else ""
-                walk(ch, excluded or bool(re.search(exclude_re, name, re.I)))
+                walk(ch,
+                     excluded or bool(re.search(exclude_re, name, re.I)),
+                     included or bool(include_re and re.search(include_re, name, re.I)))
             elif tag in ("Document", "kml"):
-                walk(ch, excluded)
-            elif tag == "Placemark" and not excluded:
+                walk(ch, excluded, included)
+            elif tag == "Placemark" and not excluded and (include_re is None or included):
                 for coords in ch.findall(".//{*}LineString/{*}coordinates"):
                     pts = []
                     for tok in (coords.text or "").split():
@@ -63,7 +67,7 @@ def parse_overhead_lines(kml, exclude_re=r"underground"):
                     if len(pts) >= 2:
                         lines.append(pts)
 
-    walk(root, False)
+    walk(root, False, False)
     return lines
 
 
@@ -242,10 +246,12 @@ def main():
     ap.add_argument("kmz")
     ap.add_argument("--dir", default="out_pyramid")
     ap.add_argument("--level", type=int, choices=(1, 2), required=True)
+    ap.add_argument("--include-folder", default=None,
+                    help="regex: only scan lines under matching folders (e.g. 'Alamogordo')")
     args = ap.parse_args()
     gmaps.key()
     os.makedirs(args.dir, exist_ok=True)
-    lines = parse_overhead_lines(gmaps.load_kml(args.kmz))
+    lines = parse_overhead_lines(gmaps.load_kml(args.kmz), include_re=args.include_folder)
     print(f"{len(lines)} overhead segments, {gmaps.total_miles(lines):.0f} miles "
           f"(underground excluded).", flush=True)
     (level1 if args.level == 1 else level2)(args, lines, args.dir)
