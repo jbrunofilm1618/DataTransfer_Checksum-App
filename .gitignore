@@ -13,3 +13,4 @@ feeder-streetview-inspection/out_bc/
 feeder-streetview-inspection/out_roadwalk/
 feeder-streetview-inspection/*.log
 feeder-streetview-inspection/out_*.log
+feeder-streetview-inspection/out_*/
