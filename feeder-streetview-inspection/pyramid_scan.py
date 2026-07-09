@@ -124,11 +124,18 @@ def level1(args, lines, d):
     todo = [c for c in cells if c[0] not in done]
 
     def fetch(c):
+        import time
         cid, li, lat, lng = c
         dest = os.path.join(tiles, f"{cid}.jpg")
         if not os.path.exists(dest):
-            gmaps.fetch_satellite_overlay(lat, lng, lines, dest, zoom=16, radius_m=800,
-                                          weight=3, max_runs=12, marker=False)
+            for attempt in range(4):
+                try:
+                    gmaps.fetch_satellite_overlay(lat, lng, lines, dest, zoom=16,
+                                                  radius_m=800, weight=3, max_runs=12,
+                                                  marker=False)
+                    break
+                except Exception:
+                    time.sleep(2 ** attempt)
         return c, dest
 
     def score(item):
@@ -202,10 +209,19 @@ def level2(args, lines, d):
 
     def work(p):
         mid, lat, lng = p
+        import time
         dest = os.path.join(tiles, f"{mid}.jpg")
         if not os.path.exists(dest):
-            if not gmaps.fetch_satellite_overlay(lat, lng, lines, dest, zoom=20,
-                                                 radius_m=80, max_runs=8):
+            ok = False
+            for attempt in range(4):
+                try:
+                    ok = gmaps.fetch_satellite_overlay(lat, lng, lines, dest, zoom=20,
+                                                       radius_m=80, max_runs=8)
+                    if ok:
+                        break
+                except Exception:
+                    time.sleep(2 ** attempt)
+            if not ok:
                 return p, -1, -1, "err: tile fetch failed"
         try:
             fast = int(vision.score_overhead(dest, model=vision.FAST_MODEL)["score"])
