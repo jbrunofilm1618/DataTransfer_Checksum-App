@@ -1,0 +1,114 @@
+{
+ "J00": [
+  5,
+  "\u26a0 OVERHEAD-ONLY \u2014 no Street View; satellite close-up may be low-res. Confirm by field/drone. overhead 5/5: The line route marked in cyan passes directly over dense tree canopy with no cleared corridor visible. The vertex point and both line segments cross areas thick with mature trees, indicating heavy tall canopy directly over the conductors. | no Street View"
+ ],
+ "J01": [
+  4,
+  "\u26a0 OVERHEAD-ONLY \u2014 no Street View; satellite close-up may be low-res. Confirm by field/drone. overhead 4/5: The marked corridor lines pass through areas with substantial tree clusters, particularly along the lower-right diagonal line which crosses dense canopy. Trees press into the corridor from multiple sides with scattered tall vegetation directly along the route, leaving limited clearance. | no Street View"
+ ],
+ "J02": [
+  2,
+  "overhead 2/5: The power line corridor (cyan) follows alongside a highway, with much of the route over open road and cleared ground. There are scattered trees and shrubs near the corridor edges, particularly to the north and around the pin, but the highway provides substantial clearance. Some moderate vegetation is near the line but the corridor is reasonably clear overall. | street view 2/5: A power pole and conductors are visible on the right side along the hillside. There is low brush and small trees near the line on the slope, but they are clearly BELOW conductor height. Taller trees appear on the ridge top some distance away. Nearest vegetation to the line is shorter than the conductors."
+ ],
+ "J03": [
+  3,
+  "Street View available but line/veg proximity not clearly confirmed \u2014 review frames. overhead 3/5: The corridor follows a highway and tracks through scattered scrub and trees. Near the lower line route and pin, there are clusters of trees close to the corridor edge, indicating moderate encroachment, though much of the route along the highway is open. | street view 2/5: A power pole with crossarm and overhead conductors is visible center-frame. The nearby vegetation consists of low scrub/juniper trees on the hillside behind the pole, clearly BELOW conductor height. Trees are within the corridor but the conductors and crossarm sit well above the tree crowns."
+ ],
+ "J04": [
+  4,
+  "\u2713 VISIBILITY VALIDATED in Street View (line + tall vegetation visible). overhead 2/5: The line corridor (cyan) runs along a highway and across open scrubby ground. The area is mostly cleared with low brush and grass. Some scattered trees and shrubs are near the corridor edges, especially around the junction point and lower part, but the route itself is reasonably clear with mostly low vegetation. | street view 4/5: Conductors run along the left side of the road, supported by poles visible at left and on the hill at right. A large tree on the left rises well above the conductor height and stands near the line corridor (within a span-width). The tree crown is ABOVE conductor height, roughly along the line though slightly set back from directly over the wires."
+ ],
+ "J05": [
+  4,
+  "\u2713 VISIBILITY VALIDATED in Street View (line + tall vegetation visible). overhead 2/5: The corridor follows a wide highway and open ground with scattered shrubs and a few small trees near the line, but the route is largely clear of tall overhanging canopy. | street view 4/5: A power pole with conductors is visible on the right side of the image, with lines extending across the upper portion. Trees on the right are at or near conductor height, within a span-width of the line. The nearest trees appear to reach AT or near conductor height, located close to the pole and line corridor."
+ ],
+ "J06": [
+  5,
+  "\u2713 VISIBILITY VALIDATED in Street View (line + tall vegetation visible). overhead 4/5: The line corridor follows along the south edge of a wide road. While the road provides clearance on the north side, dense tall tree canopy presses directly into the corridor from the south, with trees overhanging the marked line route at the pin. Little clearance on the southern side indicates significant encroachment. | street view 3/5: A pole and overhead conductors are visible on the right side, with lines running across the upper portion of the image. The dense treeline runs along the entire corridor; the trees on the left and center reach close to conductor height but are mostly AT or slightly BELOW the line. Trees are directly within the line corridor (within a span-width), growing toward it, presenting a moderate vegetation encroachment risk."
+ ],
+ "J07": [
+  2,
+  "overhead 2/5: The corridor (cyan lines) crosses open ground, a highway, dirt tracks, and a developed area with buildings. Scattered trees and shrubs are present nearby but the route itself is largely clear, with only some isolated trees close to the line path. Overall reasonably clear with minor nearby vegetation. | street view 2/5: Conductors run from the pole on the left across the top of the image. The trees near the line (around the pole) are clearly BELOW conductor height. The taller trees in the center/right are roughly half the conductor height and located well below/away from the line corridor, perhaps 20-40 ft from the conductors. No overtopping risk visible."
+ ],
+ "J08": [
+  2,
+  "overhead 2/5: The line corridor runs through mostly open, cleared ground with bare earth and scattered low shrubs. There are some scattered trees and patches of denser canopy to the east/northeast, but they are largely set back from the line path. The corridor itself appears reasonably clear with only modest nearby vegetation. | no Street View"
+ ],
+ "J09": [
+  2,
+  "overhead 2/5: The corridor follows dirt tracks through open, arid terrain with scattered juniper/pinyon trees. The ground is largely open with bare soil between the scattered trees. Some trees are near the line paths, particularly along the southeast branch, but overall there is reasonable clearance and no dense overhanging canopy directly over the corridor. | no Street View"
+ ],
+ "J10": [
+  4,
+  "\u26a0 OVERHEAD-ONLY \u2014 no Street View; satellite close-up may be low-res. Confirm by field/drone. overhead 4/5: The line corridor (marked by cyan paths converging at the pin) runs through scattered to moderately dense scrub/tree canopy. There is no clearly cleared right-of-way; trees and shrubs press right up to and into the route, particularly along the lower-right and upper segments, leaving little clearance. The northern segment passes through fairly dense canopy. | no Street View"
+ ],
+ "J11": [
+  3,
+  "\u26a0 OVERHEAD-ONLY \u2014 no Street View; satellite close-up may be low-res. Confirm by field/drone. overhead 3/5: The marked line routes pass through a mix of buildings, cleared yard areas, and scattered trees. Around the central junction near the buildings the corridor is fairly open, but the lines heading to the upper-left and lower-right run through patches of trees that press close to the route, indicating moderate encroachment from nearby canopy. | no Street View"
+ ],
+ "J12": [
+  4,
+  "\u26a0 OVERHEAD-ONLY \u2014 no Street View; satellite close-up may be low-res. Confirm by field/drone. overhead 4/5: The cyan-marked corridor branches radiate from a junction point. Several segments, especially those heading toward the upper-right and lower portions of the tile, pass directly through dense tree canopy with trees pressing into and overhanging the route. The northwest segment crosses more open ground, but overall the corridor has substantial canopy encroachment with little clearance along multiple branches. | no Street View"
+ ],
+ "J13": [
+  4,
+  "\u26a0 OVERHEAD-ONLY \u2014 no Street View; satellite close-up may be low-res. Confirm by field/drone. overhead 4/5: The line corridor (cyan paths) crosses through areas with substantial tall tree canopy, especially around the central junction point and along the diagonal route heading to the highway. Dense trees are directly adjacent to and overhanging portions of the corridor with little clearance, while some segments pass over open cleared ground. | no Street View"
+ ],
+ "J14": [
+  3,
+  "\u26a0 OVERHEAD-ONLY \u2014 no Street View; satellite close-up may be low-res. Confirm by field/drone. overhead 3/5: The corridor (cyan line) runs along an open area near a paved circular drive. On the left side there is a cluster of trees pressing close to the corridor edge, with scattered shrubs and small trees nearby, indicating moderate encroachment but the route itself remains mostly clear. | no Street View"
+ ],
+ "J15": [
+  3,
+  "\u2713 VISIBILITY VALIDATED in Street View (line + tall vegetation visible). overhead 1/5: The line corridor (cyan) follows roads and open developed/grassy areas. The route runs over open ground, roads, and lawns with only scattered trees nearby on the sides. There is no tall canopy directly overhanging the corridor, so clearance is good. | street view 3/5: A conductor span is visible crossing the upper-left sky. On the right side, a tall tree reaches roughly to or near conductor height within a span-width of the line. Nearest trees are AT/BELOW conductor height, a short distance from the line."
+ ],
+ "J16": [
+  4,
+  "\u2713 VISIBILITY VALIDATED in Street View (line + tall vegetation visible). overhead 3/5: The line corridor (cyan) runs through a developed industrial/open area, mostly clear. However, a cluster of trees grows directly along the central line near the pin, with additional canopy at the lower-left where lines pass through. This represents moderate encroachment at certain points while much of the route is open ground. | street view 3/5: A power pole with crossarm is visible center-left. Trees on the hillside behind and beside the corridor reach close to conductor height, and the green deciduous trees right of the road are roughly at or near the line height within a span-width. Nearest trees appear AT or slightly below conductor height, within ~20-30m of the line."
+ ],
+ "J17": [
+  5,
+  "\u2713 VISIBILITY VALIDATED in Street View (line + tall vegetation visible). overhead 3/5: The corridor follows roads/tracks marked in cyan. Much of the route is over open ground and roadway, but there is a dense cluster of tall trees pressing close to the corridor edge near the central pin and along the eastern/northern segments, indicating moderate encroachment in places. | street view 4/5: Conductors are visible running across the upper-left of the image on poles. A large tree center-right rises well ABOVE conductor height. The conductors appear to run along the left/background area while the tall tree is somewhat off the direct line corridor, roughly within a span-width, so it poses a credible fall/grow-in risk."
+ ],
+ "J18": [
+  3,
+  "\u2713 VISIBILITY VALIDATED in Street View (line + tall vegetation visible). overhead 2/5: The corridor follows roads/tracks through a developed rural area with mostly open ground and grassy fields. There are clusters of trees near the western branch of the line and lower-left, but the corridor itself is largely clear with moderate vegetation only along one side. | street view 3/5: Conductors run from the pole crossarm at roughly mid-pole height. A tall evergreen on the left reaches close to conductor height but is set back from the line. Other trees in the corridor (center-right) are at or near conductor height but slightly behind the line. Nearest trees are AT to slightly BELOW conductor height, roughly half a span away."
+ ],
+ "J19": [
+  2,
+  "overhead 2/5: The corridor lines run through mostly open, dry grassland with scattered trees. There is a cluster of trees just south of the junction near the pin and some trees to the right, but the main corridor route appears reasonably clear with only some nearby vegetation rather than direct overhang. | no Street View"
+ ],
+ "J20": [
+  2,
+  "overhead 2/5: The line corridor crosses mostly open grassy/scrub terrain with the right-of-way reasonably clear. Tree clusters appear at the lower-left and lower-right edges pressing somewhat toward the route, but the immediate corridor around the pin is open with only scattered low vegetation. | no Street View"
+ ],
+ "J21": [
+  4,
+  "\u26a0 OVERHEAD-ONLY \u2014 no Street View; satellite close-up may be low-res. Confirm by field/drone. overhead 4/5: The cyan line routes pass directly through a cluster of dense tall trees near the central pin and continue across additional canopy in the lower portion of the tile. Open grassland surrounds much of the route, but a substantial stand of tall trees sits right on the corridor with little clearance, indicating significant encroachment. | no Street View"
+ ],
+ "J22": [
+  2,
+  "overhead 2/5: The line corridor follows an open grassy/cleared area with a dirt track. Most of the route is well clear, though there are tree clusters along the left/southwest side that come moderately close to one branch of the corridor. Overall the corridor looks reasonably clear with some nearby trees on one side. | no Street View"
+ ],
+ "J23": [
+  4,
+  "\u2713 VISIBILITY VALIDATED in Street View (line + tall vegetation visible). overhead 2/5: The corridor (marked by cyan lines and a road) runs through mostly open grassy terrain. There are scattered shrubs and small trees nearby, including one near the marker, but the corridor is largely clear with no tall overhanging canopy directly over the route. | street view 4/5: Conductors run from the pole at left across the upper portion of the image. The bare deciduous tree in the center reaches roughly to conductor height and stands within a span-width of the line. Background pine trees are tall but set back further. Nearest tree is AT conductor height, very close to the line corridor."
+ ],
+ "J24": [
+  2,
+  "overhead 2/5: The line junction is in open meadow/cleared terrain. The corridors to the east and south run through open ground with no canopy. However, the western branch passes close to dense tree clusters on the left side, with trees near the corridor edge. Overall the route is reasonably clear with some nearby trees, mainly along the west arm. | no Street View"
+ ],
+ "J25": [
+  5,
+  "\u2713 VISIBILITY VALIDATED in Street View (line + tall vegetation visible). overhead 3/5: The line follows a road/track along the edge of a clearing. The west side is open ground, but the east side has dense conifer trees pressing right up to the corridor edge, with one lateral branch line running directly into the tree canopy. Moderate encroachment from the treed side. | street view 5/5: Faint overhead conductors are visible in the upper portion of the image crossing the sky. Tall pine trees on the hillside rise well ABOVE the conductor height and are directly within/over the line corridor, presenting overtopping and imminent fall-in risk. Nearest trees are clearly ABOVE conductor height and within a span-width of the line."
+ ],
+ "J26": [
+  3,
+  "\u26a0 OVERHEAD-ONLY \u2014 no Street View; satellite close-up may be low-res. Confirm by field/drone. overhead 3/5: The corridor (cyan lines) intersects at the pin in mostly open grassland. However, the southwest-running line passes very close to a cluster of tall pines on the left/lower-left, with trees pressing toward the corridor edge. Most segments are clear, but moderate encroachment exists from that tree cluster, warranting a mid-level score. | no Street View"
+ ],
+ "J27": [
+  5,
+  "\u2713 VISIBILITY VALIDATED in Street View (line + tall vegetation visible). overhead 5/5: The line corridor (cyan) runs through dense tall tree canopy, especially along the south and lower-left branches where trees clearly overhang the route. The northern branch passes through clusters of tall trees with little clearance, indicating heavy overhang directly over the corridor. | street view 3/5: Faint conductors are visible along the corridor with poles near the center and right of the image. Tall pine trees and a large deciduous tree on the right side reach close to or above conductor height, located within a span-width of the line. The forested hillside trees in the background are farther away. Nearest trees appear AT to slightly ABOVE conductor height beside the line."
+ ]
+}
